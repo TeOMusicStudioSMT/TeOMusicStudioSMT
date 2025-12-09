@@ -1,6 +1,4 @@
-git add .
-git commit -m "fix(deploy): rename Dockerfile and correct build path for Vite"
-git push# Stage 1: Build the React frontend (Vite)
+# Stage 1: Build the React frontend (Vite)
 FROM node:20.10.0-alpine AS frontend-builder
 WORKDIR /usr/src/app
 
