@@ -1,44 +1,28 @@
-/**
- * This file was originally a Dockerfile with a .tsx extension, which caused TypeScript parsing errors.
- * To resolve this while preserving the content, the Dockerfile instructions have been embedded
- * within a React component as a string literal. This makes the file syntactically valid TypeScript/JSX.
- */
-import React from 'react';
-
-const DockerfileContent: React.FC = () => {
-  const dockerfile = `# Stage 1: Build the React frontend
+git add .
+git commit -m "fix(deploy): rename Dockerfile and correct build path for Vite"
+git push# Stage 1: Build the React frontend (Vite)
 FROM node:20.10.0-alpine AS frontend-builder
-WORKDIR /app
+WORKDIR /usr/src/app
 
-# Copy package files from the 'frontend' directory
-COPY frontend/package*.json ./
-
-# Install dependencies
+# Kopiowanie plików pakietu i instalacja zależności
+COPY package*.json ./
 RUN npm install
 
-# Copy the rest of the frontend application code
-COPY frontend/ .
+# Kopiowanie reszty kodu
+COPY . .
 
-# Build the frontend application
+# Uruchomienie kompilacji
 RUN npm run build
 
-# Stage 2: Final production image
+# Stage 2: Finalny obraz produkcyjny (Nginx)
 FROM nginx:alpine
 
-# Copy the build output from the builder stage to Nginx
-COPY --from=frontend-builder /app/build /usr/share/nginx/html
+# GORGOO FIX: Vite buduje do folderu 'dist', nie 'build'
+COPY --from=frontend-builder /usr/src/app/dist /usr/share/nginx/html
 
-# Expose port 80
+# Opcjonalnie: Konfiguracja dla React Router (SPA)
+# Jeśli odświeżanie strony wyrzuca 404, będziemy musieli dodać nginx.conf
+# Na razie zostawiamy standard.
+
 EXPOSE 80
-
-# Start Nginx
-CMD ["nginx", "-g", "daemon off;"]`;
-
-  return (
-    <pre>
-      <code>{dockerfile}</code>
-    </pre>
-  );
-};
-
-export default DockerfileContent;
+CMD ["nginx", "-g", "daemon off;"]
