@@ -1,24 +1,36 @@
-# Stage 1: Build (Vite)
+# Stage 1: Build
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Kopiujemy definicje zależności
-COPY package*.json ./
+# Kopiujemy pliki konfiguracyjne
+COPY package.json ./
 
-# Instalujemy zależności (bez sprawdzania wersji, dla pewności)
+# GORGOO: Usuwamy package-lock.json z równania, bo może powodować błędy JSON
+# Instalujemy zależności z flagą legacy-peer-deps dla bezpieczeństwa
 RUN npm install --legacy-peer-deps
 
-# Kopiujemy resztę kodu
+# Kopiujemy resztę projektu
 COPY . .
 
-# Budujemy aplikację
+# Budujemy aplikację (React Scripts tworzy folder 'build')
 RUN npm run build
 
 # Stage 2: Serwowanie (Nginx)
 FROM nginx:alpine
-# Vite domyślnie buduje do folderu 'dist'
-COPY --from=builder /app/dist /usr/share/nginx/html
-# Dodajemy konfigurację dla SPA (żeby odświeżanie strony nie dawało 404)
-RUN echo 'server { listen 80; root /usr/share/nginx/html; index index.html; location / { try_files $uri $uri/ /index.html; } }' > /etc/nginx/conf.d/default.conf
+
+# GORGOO FIX: Kopiujemy z folderu 'build' (nie dist!), bo używasz react-scripts
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Konfiguracja Nginx dla React Router (zapobiega błędom 404 przy odświeżaniu)
+RUN echo 'server { \
+    listen 80; \
+    server_name localhost; \
+    root /usr/share/nginx/html; \
+    index index.html; \
+    location / { \
+        try_files $uri $uri/ /index.html; \
+    } \
+}' > /etc/nginx/conf.d/default.conf
+
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
