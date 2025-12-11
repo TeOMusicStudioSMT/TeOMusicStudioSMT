@@ -3,26 +3,30 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # GORGOO FIX: Kopiujemy package.json z podkatalogu 'frontend'
-# Dockerfile leży w root, ale aplikacja jest w 'frontend/'
 COPY frontend/package*.json ./
 
-# Instalujemy zależności
+# Instalujemy zależności (z legacy-peer-deps, bo pewnie są stare pakiety)
 RUN npm install --legacy-peer-deps
 
-# GORGOO FIX: Kopiujemy CAŁĄ zawartość folderu 'frontend' do głównego katalogu roboczego kontenera (/app)
-# Dzięki temu struktura plików w kontenerze będzie płaska (src i public będą bezpośrednio w /app)
+# GORGOO FIX: Kopiujemy CAŁĄ zawartość folderu 'frontend'
 COPY frontend/ .
 
-# Budujemy aplikację (teraz znajdzie public/index.html)
+# --- GORGOO HOTFIX START ---
+# Ręcznie instalujemy nowszą wersję AJV, żeby naprawić błąd "Cannot find module..."
+# To rozwiązuje konflikt między webpackiem a starymi zależnościami
+RUN npm install ajv@^8 --save-dev
+# --- GORGOO HOTFIX END ---
+
+# Budujemy aplikację
 RUN npm run build
 
 # Stage 2: Production Server (Nginx)
 FROM nginx:alpine
 
-# Kopiujemy zbudowane pliki z folderu 'build' (React Scripts)
+# Kopiujemy zbudowane pliki
 COPY --from=builder /app/build /usr/share/nginx/html
 
-# Konfiguracja Nginx dla Single Page Application (zapobiega błędom 404 przy odświeżaniu)
+# Konfiguracja Nginx (bez zmian, jest poprawna)
 RUN echo 'server { \
     listen 80; \
     server_name localhost; \
