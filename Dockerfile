@@ -12,10 +12,13 @@ RUN npm install --legacy-peer-deps
 COPY frontend/ .
 
 # --- GORGOO HOTFIX START ---
-# Ręcznie instalujemy nowszą wersję AJV, żeby naprawić błąd "Cannot find module..."
-# To rozwiązuje konflikt między webpackiem a starymi zależnościami
 RUN npm install ajv@^8 --save-dev
 # --- GORGOO HOTFIX END ---
+
+# --- GORGOO DEBUG: Pokaż mi listę plików w src ---
+RUN echo "--- ZAWARTOŚĆ KATALOGU SRC ---"
+RUN ls -la /app/src
+# ---------------------------------------------
 
 # Budujemy aplikację
 RUN npm run build
