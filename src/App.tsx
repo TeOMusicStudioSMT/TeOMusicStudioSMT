@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { TeleportGate } from './components/TeleportGate';
 import { Music, Mic2, Radio } from 'lucide-react';
