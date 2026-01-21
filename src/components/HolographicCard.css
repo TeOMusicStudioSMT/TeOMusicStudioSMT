@@ -1,0 +1,155 @@
+/* src/components/HolographicCard.css */
+.holo-card {
+    width: 220px;
+    height: 300px;
+    perspective: 1000px;
+    cursor: pointer;
+}
+
+.holo-content {
+    width: 100%;
+    height: 100%;
+    transform-style: preserve-3d;
+    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0px 0px 20px 1px rgba(0, 0, 0, 0.5);
+    border-radius: 12px;
+}
+
+.holo-card:hover .holo-content {
+    transform: rotateY(180deg);
+}
+
+.holo-front,
+.holo-back {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    border-radius: 12px;
+    overflow: hidden;
+    background-color: #0a0a0a;
+    /* Dark background */
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* --- FRONT STYLES --- */
+.holo-front {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: white;
+}
+
+/* Floating Blob Animation on Front */
+.holo-circle {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    position: absolute;
+    filter: blur(25px);
+    animation: floating 3s infinite ease-in-out;
+    opacity: 0.6;
+}
+
+@keyframes floating {
+
+    0%,
+    100% {
+        transform: translateY(0) scale(1);
+    }
+
+    50% {
+        transform: translateY(-10px) scale(1.1);
+    }
+}
+
+.holo-front-content {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+}
+
+/* --- BACK STYLES --- */
+.holo-back {
+    transform: rotateY(180deg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #050505;
+}
+
+/* Rotating Gradient Border effect */
+.holo-back::before {
+    position: absolute;
+    content: '';
+    width: 150%;
+    height: 150%;
+    background: linear-gradient(90deg, transparent, var(--neon-color), transparent);
+    animation: rotation_border 4s infinite linear;
+    z-index: 0;
+}
+
+@keyframes rotation_border {
+    0% {
+        transform: rotate(0deg);
+    }
+
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.holo-back-inner {
+    position: absolute;
+    inset: 2px;
+    /* Border thickness */
+    background: #0a0a0a;
+    border-radius: 10px;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    gap: 15px;
+    text-align: center;
+}
+
+.holo-title {
+    font-size: 1.2rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: white;
+}
+
+.holo-desc {
+    font-size: 0.8rem;
+    color: #888;
+    line-height: 1.4;
+}
+
+.holo-btn {
+    margin-top: 10px;
+    padding: 8px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 20px;
+    color: white;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background: rgba(255, 255, 255, 0.05);
+    transition: all 0.2s;
+}
+
+.holo-btn:hover {
+    background: var(--neon-color);
+    color: black;
+    box-shadow: 0 0 15px var(--neon-color);
+    border-color: transparent;
+}
