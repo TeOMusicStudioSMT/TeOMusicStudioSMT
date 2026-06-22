@@ -41,6 +41,83 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Synchronizacja odtwarzacza z isPlaying i wygenerowanym audio
+  useEffect(() => {
+    if (!generatedAudio) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      setIsPlaying(false);
+      return;
+    }
+
+    if (!audioRef.current) {
+      audioRef.current = new Audio(generatedAudio.url);
+      audioRef.current.onended = () => {
+        setIsPlaying(false);
+      };
+    } else if (audioRef.current.src !== generatedAudio.url) {
+      audioRef.current.pause();
+      audioRef.current.src = generatedAudio.url;
+      audioRef.current.load();
+    }
+
+    if (isPlaying) {
+      audioRef.current.play().catch(err => {
+        console.error('Błąd odtwarzania audio:', err);
+        setIsPlaying(false);
+      });
+    } else {
+      audioRef.current.pause();
+    }
+  }, [isPlaying, generatedAudio]);
+
+  // Zatrzymanie audio przy zmianie modułu lub wyjściu
+  useEffect(() => {
+    if (!activeModule) {
+      setIsPlaying(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    }
+  }, [activeModule]);
+
+  // Czyszczenie przy odmontowaniu
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
+
+  // Bezpieczne i wymuszone pobieranie pliku audio (obejście CORS i nawigacji)
+  const handleDownload = async (e: React.MouseEvent) => {
+    if (!generatedAudio) return;
+    e.preventDefault();
+    try {
+      const res = await fetch(generatedAudio.url);
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const tempLink = document.createElement('a');
+      tempLink.href = blobUrl;
+      
+      const extension = generatedAudio.url.split('.').pop()?.split('?')[0] || 'mp3';
+      const cleanTitle = generatedAudio.title.replace(/[^a-zA-Z0-9-_]/g, '_');
+      tempLink.setAttribute('download', `${cleanTitle}.${extension}`);
+      
+      document.body.appendChild(tempLink);
+      tempLink.click();
+      document.body.removeChild(tempLink);
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('Błąd pobierania pliku przez Fetch Blob, fallback do nowej karty:', err);
+      window.open(generatedAudio.url, '_blank');
+    }
+  };
 
   // Auto-detekcja teleportacji z Huba (Query string)
   useEffect(() => {
@@ -136,8 +213,30 @@ function App() {
       await new Promise(r => setTimeout(r, 300));
     }
 
+    // Pętla pobierająca dostępny lokalny utwór z mostu Wiesio-Bridge
+    let audioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+    try {
+      const response = await fetch('http://127.0.0.1:3001/wiesio/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'GET_LOCAL_PLAYLIST' }),
+      });
+      const data = await response.json();
+      if (data.success && data.tracks && data.tracks.length > 0) {
+        // Wybieramy losowy utwór z lokalnej biblioteki, aby symulacja brzmiała za każdym razem unikalnie!
+        const randomIndex = Math.floor(Math.random() * data.tracks.length);
+        audioUrl = data.tracks[randomIndex].audio_url;
+      } else {
+        // Fallback do 1. Solar Puso.wav
+        audioUrl = 'http://127.0.0.1:3001/music/OtakOS%20RADIO%20Album\'s/2Solar%20Puso/1.%20Solar%20Puso.wav';
+      }
+    } catch (e) {
+      console.warn('[ACE-Step] Wiesio-Bridge offline, falling back to public demo track:', e);
+      audioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+    }
+
     setGeneratedAudio({
-      url: 'https://cdn.suno.ai/generated/demo_track.mp3', // demo track do odtworzenia
+      url: audioUrl,
       title: `${teleportParams?.style || 'ACE-Step'} - Wygenerowany Lokalnie`,
     });
     setIsGenerating(false);
@@ -405,17 +504,17 @@ function App() {
                           <button
                             onClick={() => setIsPlaying(prev => !prev)}
                             className="p-3 bg-purple-600 hover:bg-purple-500 rounded-full text-white transition-colors"
+                            title={isPlaying ? "Wstrzymaj odtwarzanie" : "Odtwórz utwór"}
                           >
                             {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                           </button>
-                          <a
-                            href={generatedAudio.url}
-                            download
-                            className="p-3 bg-slate-900 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors border border-purple-500/20"
+                          <button
+                            onClick={handleDownload}
+                            className="p-3 bg-slate-900 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors border border-purple-500/20 flex items-center justify-center"
                             title="Pobierz plik audio"
                           >
                             <Download className="w-4 h-4" />
-                          </a>
+                          </button>
                         </div>
                       </motion.div>
                     )}
