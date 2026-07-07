@@ -42,6 +42,7 @@ export const MusicGenerator: React.FC<MusicGeneratorProps> = ({
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<{ audioUrl: string; title: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isStaging, setIsStaging] = useState(false);
 
   const handleGenerate = useCallback(async () => {
     setIsGenerating(true);
@@ -75,6 +76,32 @@ export const MusicGenerator: React.FC<MusicGeneratorProps> = ({
     
     setIsGenerating(false);
   }, [params, onComplete]);
+
+  const handleCreateTeledysk = useCallback(async () => {
+    if (!result) return;
+    setIsStaging(true);
+    setError(null);
+    try {
+      const res = await fetch('http://127.0.0.1:3001/api/teledysk/stage-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audioUrl: result.audioUrl, title: result.title }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Nie udało się przenieść utworu do Katedry');
+
+      const hubHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        ? 'http://localhost:5176'
+        : '';
+      const q = new URLSearchParams({ openTeledysk: '1', audioFile: data.audioFile, title: result.title });
+      window.open(`${hubHost}/?${q.toString()}`, '_blank');
+    } catch (e: any) {
+      console.error('[MusicGenerator] ❌ Teledysk:', e);
+      setError(e.message || 'Błąd przenoszenia do Kreatora Teledysku');
+    } finally {
+      setIsStaging(false);
+    }
+  }, [result]);
 
   return (
     <div className="max-w-2xl mx-auto p-6 bg-slate-900/50 backdrop-blur-xl rounded-3xl border border-purple-500/30">
@@ -154,6 +181,15 @@ export const MusicGenerator: React.FC<MusicGeneratorProps> = ({
           <audio controls className="w-full">
             <source src={result.audioUrl} type="audio/mpeg" />
           </audio>
+          <button
+            onClick={handleCreateTeledysk}
+            disabled={isStaging}
+            className={`w-full mt-4 py-3 rounded-xl font-bold ${
+              isStaging ? 'bg-slate-700 text-slate-400' : 'bg-gradient-to-r from-amber-500 to-orange-600 text-white'
+            }`}
+          >
+            {isStaging ? '🔮 Przenoszę do Katedry...' : '🎬 Stwórz teledysk'}
+          </button>
         </motion.div>
       )}
       
