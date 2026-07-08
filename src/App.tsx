@@ -39,6 +39,7 @@ function App() {
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generatedAudio, setGeneratedAudio] = useState<{ url: string; title: string } | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isStagingTeledysk, setIsStagingTeledysk] = useState(false);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -240,6 +241,31 @@ function App() {
       title: `${teleportParams?.style || 'ACE-Step'} - Wygenerowany Lokalnie`,
     });
     setIsGenerating(false);
+  };
+
+  // 🎬 Wyślij wygenerowany utwór do Kreatora Teledysku w Katedrze (Hub, :5176)
+  const handleCreateTeledysk = async () => {
+    if (!generatedAudio) return;
+    setIsStagingTeledysk(true);
+    try {
+      const res = await fetch('http://127.0.0.1:3001/api/teledysk/stage-audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audioUrl: generatedAudio.url, title: generatedAudio.title }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || 'Nie udało się przenieść utworu do Katedry');
+
+      const hubHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        ? 'http://localhost:5176'
+        : '';
+      const q = new URLSearchParams({ openTeledysk: '1', audioFile: data.audioFile, title: generatedAudio.title });
+      window.open(`${hubHost}/?${q.toString()}`, '_blank');
+    } catch (e) {
+      console.error('[ACE-Step] ❌ Teledysk:', e);
+    } finally {
+      setIsStagingTeledysk(false);
+    }
   };
 
   return (
@@ -514,6 +540,14 @@ function App() {
                             title="Pobierz plik audio"
                           >
                             <Download className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={handleCreateTeledysk}
+                            disabled={isStagingTeledysk}
+                            className="p-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 rounded-full text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Stwórz teledysk (otwórz w Katedrze)"
+                          >
+                            {isStagingTeledysk ? <RefreshCw className="w-4 h-4 animate-spin" /> : '🎬'}
                           </button>
                         </div>
                       </motion.div>
