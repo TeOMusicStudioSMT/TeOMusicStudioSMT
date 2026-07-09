@@ -42,7 +42,7 @@ const GravitonRadio: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`${BRIDGE}/wiesio/action`, {
+        const res = await fetch(`${BRIDGE}/api/bridge/execute`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ action: 'GET_LOCAL_PLAYLIST' }),

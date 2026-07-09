@@ -218,7 +218,8 @@ function App() {
     // Pętla pobierająca dostępny lokalny utwór z mostu Wiesio-Bridge
     let audioUrl = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
     try {
-      const response = await fetch('http://127.0.0.1:3001/wiesio/action', {
+      // /api/bridge/execute — /wiesio/action nie zna tej akcji (zweryfikowane na żywym moście)
+      const response = await fetch('http://127.0.0.1:3001/api/bridge/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'GET_LOCAL_PLAYLIST' }),
