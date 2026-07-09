@@ -32,9 +32,8 @@ export const useHermesCourier = () => {
         for (let i = 0; i < totalShards; i++) {
             const start = i * CHUNK_SIZE;
             const end = Math.min(start + CHUNK_SIZE, file.size);
-            const chunk = file.slice(start, end);
+            void file.slice(start, end); // shard gotowy — tu normalnie POST do API (Firebase Storage / S3 Multipart)
 
-            // Tutaj normalnie wysyłałbyś 'chunk' do API (np. Firebase Storage / AWS S3 Multipart)
             // My symulujemy opóźnienie sieciowe (grawitację)
             await new Promise(resolve => setTimeout(resolve, 50 + Math.random() * 100)); // 50-150ms na paczkę
 

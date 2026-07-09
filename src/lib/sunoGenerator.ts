@@ -9,7 +9,7 @@
  * - Raportowanie do Wir26HeartBeat
  */
 
-import { getSunoCookie } from '../../TeO_Genesis/lib/kibel';
+import { getSunoKey as getSunoCookie } from './kibel';
 
 interface SunoParams {
   prompt: string;

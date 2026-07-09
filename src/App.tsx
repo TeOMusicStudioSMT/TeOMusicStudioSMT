@@ -6,6 +6,7 @@ import {
   SlidersHorizontal, Download, RefreshCw
 } from 'lucide-react'; // Import ikon
 import BioResonanceEngine from './components/BioResonanceEngine';
+import GravitonRadio from './components/GravitonRadio';
 import GhostCursor from './components/GhostCursor';
 import HolographicCard from './components/HolographicCard';
 
@@ -312,7 +313,7 @@ function App() {
                 description="Tune into the frequencies of the network."
                 icon={Radio}
                 color="#a855f7" // Purple
-                onClick={() => setActiveModule('engine')}
+                onClick={() => setActiveModule('radio')}
               />
 
               <HolographicCard
@@ -344,6 +345,9 @@ function App() {
           >
             {/* ⚙️ MODUŁ BIO-REZONANSU */}
             {activeModule === 'engine' && <BioResonanceEngine />}
+
+            {/* 📻 GRAVITON RADIO — strumień z lokalnej biblioteki Katedry */}
+            {activeModule === 'radio' && <GravitonRadio />}
 
             {/* 🔮 MODUŁ AI SESSION: ACE-STEP 1.5 LOCAL ENGINEERING */}
             {activeModule === 'ai' && (
