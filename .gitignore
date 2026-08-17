@@ -12,6 +12,18 @@ dist
 dist-ssr
 *.local
 
+# 🧠 WAGI MODELI — nigdy do repo (16+ GB). Ściągane przez Katedrę po instalacji:
+# panel AI Session → Katalog Modeli, albo POST /api/music/models/pull na moście.
+# Manifest (co i skąd) siedzi w src/services/musicModelCatalog.ts i JEST w repo.
+# Wzorzec `models/*`, a NIE `models/` — przy wykluczeniu całego katalogu git w niego
+# nie zagląda i negacja poniżej nigdy by nie zadziałała.
+models/*
+!models/README.md
+*.safetensors
+*.ckpt
+*.gguf
+*.bin
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
