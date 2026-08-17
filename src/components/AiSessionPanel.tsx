@@ -815,7 +815,9 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
             ) : (
               <>
                 <Sparkles className="w-5 h-5 animate-pulse text-amber-300" />
-                <span>Uruchom Muzyczny Mózg MiniMax-Music-3</span>
+                {/* Bez nazwy modelu — most sam wybiera rodzinę, która ma kompletne wagi
+                    (ACE ma pierwszeństwo). Wpisanie tu "MiniMax" byłoby napisem, który kłamie. */}
+                <span>Uruchom Muzyczny Mózg</span>
               </>
             )}
           </motion.button>

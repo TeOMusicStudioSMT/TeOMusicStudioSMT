@@ -15,6 +15,8 @@
 
 export type ModelRole = 'diffusion_models' | 'text_encoders' | 'vae';
 export type ModelPrecision = 'int8' | 'fp16' | 'bf16' | 'fp32';
+/** Rodzina silnika. Wagi jednej rodziny NIE łączą się z wagami drugiej. */
+export type ModelFamily = 'minimax' | 'ace';
 
 export interface MusicModelFile {
   /** Stabilny identyfikator używany przez most i UI */
@@ -32,9 +34,12 @@ export interface MusicModelFile {
   note: string;
   /** Czy realnie wchodzi w 6 GB VRAM (RTX 3060 Laptop) */
   fitsVram6gb: boolean;
+  /** Domyślnie 'minimax' — wagi rodzin się nie mieszają. */
+  family?: ModelFamily;
 }
 
 export const MODEL_REPO = 'Comfy-Org/MiniMax-Music-3';
+export const MODEL_REPO_ACE = 'Comfy-Org/ace_step_1.5_ComfyUI_files';
 
 /** Skąd lecą pliki. Zmiana na mirror = jedna linia. */
 export function huggingFaceUrl(repo: string, path: string): string {
@@ -124,7 +129,80 @@ export const MUSIC_MODELS: MusicModelFile[] = [
     note: 'Zamienia latent w falę dźwiękową. Mały i BEZWZGLĘDNIE wymagany — bez niego nie ma pliku audio.',
     fitsVram6gb: true,
   },
+
+  // ══ ACE-Step 1.5 ═══════════════════════════════════════════════════════════
+  // DLACZEGO ISTNIEJE TA RODZINA: MiniMax ma fazę autoregresywną (~25 kroków na
+  // sekundę audio). Zmierzone na RTX 3060 Laptop 6GB / 15,7GB RAM: 16,6 s/krok,
+  // 1501 kroków na minutę = ~6h50m, przy GPU na 0% (model streamowany z dysku).
+  // ACE-Step turbo to czysta dyfuzja w 8 krokach — ~190× mniej obliczeń — więc
+  // chodzi na tym sprzęcie realnie. Do tego bierze BPM i tonację jako wejścia
+  // modelu (a nie tekst w prompcie) i obsługuje polskie teksty.
+  {
+    id: 'ace-dit-turbo',
+    path: 'diffusion_models/acestep_v1.5_turbo.safetensors',
+    role: 'diffusion_models',
+    precision: 'bf16',
+    bytes: 4_787_825_604,
+    repo: MODEL_REPO_ACE,
+    label: 'ACE-Step 1.5 turbo (DiT)',
+    note: 'Rdzeń dyfuzji, wariant turbo — 8 kroków zamiast 30. Główny powód, dla którego ACE działa na 6 GB VRAM.',
+    fitsVram6gb: true,
+    family: 'ace',
+  },
+  {
+    id: 'ace-dit-base',
+    path: 'diffusion_models/acestep_v1.5_base.safetensors',
+    role: 'diffusion_models',
+    precision: 'bf16',
+    bytes: 4_787_825_604,
+    repo: MODEL_REPO_ACE,
+    label: 'ACE-Step 1.5 base (DiT)',
+    note: 'Wariant bez turbo — więcej kroków, potencjalnie lepsza jakość. Wolniejszy.',
+    fitsVram6gb: true,
+    family: 'ace',
+  },
+  {
+    id: 'ace-clip-06b',
+    path: 'text_encoders/qwen_0.6b_ace15.safetensors',
+    role: 'text_encoders',
+    precision: 'bf16',
+    bytes: 1_191_588_248,
+    repo: MODEL_REPO_ACE,
+    label: 'ACE Qwen 0.6B (encoder A)',
+    note: 'Pierwszy z DWÓCH wymaganych encoderów (DualCLIPLoader). Ledwie 1,1 GB — tu jest cała różnica wobec 8,6 GB MiniMaxa.',
+    fitsVram6gb: true,
+    family: 'ace',
+  },
+  {
+    id: 'ace-clip-17b',
+    path: 'text_encoders/qwen_1.7b_ace15.safetensors',
+    role: 'text_encoders',
+    precision: 'bf16',
+    bytes: 3_708_523_360,
+    repo: MODEL_REPO_ACE,
+    label: 'ACE Qwen 1.7B (encoder B)',
+    note: 'Drugi z DWÓCH wymaganych encoderów. ACE nie ruszy z jednym — graf używa DualCLIPLoader.',
+    fitsVram6gb: true,
+    family: 'ace',
+  },
+  {
+    id: 'ace-vae',
+    path: 'vae/ace_1.5_vae.safetensors',
+    role: 'vae',
+    precision: 'fp32',
+    bytes: 337_431_732,
+    repo: MODEL_REPO_ACE,
+    label: 'ACE 1.5 VAE',
+    note: 'Dekoder audio ACE. Mały i bezwzględnie wymagany.',
+    fitsVram6gb: true,
+    family: 'ace',
+  },
 ];
+
+/** Rodzina modelu — brak pola znaczy 'minimax' (tak było przed dodaniem ACE). */
+export function family(m: MusicModelFile): ModelFamily {
+  return m.family ?? 'minimax';
+}
 
 /**
  * Zestawy gotowe do kliknięcia. Każdy MUSI zawierać po jednym: DiT, encoder, DAV —
@@ -140,22 +218,31 @@ export interface ModelBundle {
 
 export const MODEL_BUNDLES: ModelBundle[] = [
   {
-    id: 'lekki',
-    label: 'Lekki 0.00G',
-    description: 'Wszystko w int8. Jedyny zestaw, który realnie chodzi na 6 GB VRAM.',
-    fileIds: ['dit-int8', 'text-encoder-pruned-int8', 'dav'],
+    id: 'ace-turbo',
+    label: 'ACE-Step Turbo',
+    description:
+      'Czysta dyfuzja w 8 krokach, bez fazy autoregresywnej. Jedyny zestaw, który ZMIERZONO jako używalny na 16 GB RAM. Bierze BPM i tonację wprost, obsługuje polskie teksty.',
+    fileIds: ['ace-dit-turbo', 'ace-clip-06b', 'ace-clip-17b', 'ace-vae'],
     recommendedFor6gb: true,
   },
   {
+    id: 'lekki',
+    label: 'MiniMax Lekki',
+    description:
+      'MiniMax w int8. Zmierzone na tej maszynie: ~6h50m na minutę muzyki (faza autoregresywna, 1501 kroków). Sensowne dopiero od ~32 GB RAM.',
+    fileIds: ['dit-int8', 'text-encoder-pruned-int8', 'dav'],
+    recommendedFor6gb: false,
+  },
+  {
     id: 'jakosc',
-    label: 'Wysoka Jakość',
-    description: 'DiT w fp16 + przycięty encoder int8. Kompromis — na 6 GB tylko krótkie utwory.',
+    label: 'MiniMax fp16',
+    description: 'DiT w fp16 + przycięty encoder int8. Wyższa wierność, ale ta sama faza autoregresywna.',
     fileIds: ['dit-fp16', 'text-encoder-pruned-int8', 'dav'],
     recommendedFor6gb: false,
   },
   {
     id: 'studio',
-    label: 'Studio Master',
+    label: 'MiniMax Studio Master',
     description: 'fp32 + pełny encoder bf16. Ponad 28 GB pobierania, wymaga mocnego węzła.',
     fileIds: ['dit-fp32', 'text-encoder-bf16', 'dav'],
     recommendedFor6gb: false,

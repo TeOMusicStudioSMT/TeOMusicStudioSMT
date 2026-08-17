@@ -16,9 +16,15 @@ import {
 import toast from 'react-hot-toast';
 import {
   MODEL_BUNDLES, MUSIC_MODELS, ROLE_LABELS,
-  bundleBytes, humanBytes,
-  type ModelRole, type MusicModelFile,
+  bundleBytes, humanBytes, family,
+  type ModelRole, type MusicModelFile, type ModelFamily,
 } from '../services/musicModelCatalog';
+
+/** Nagłówki rodzin — wagi jednej rodziny nie łączą się z wagami drugiej. */
+const FAMILY_LABELS: Record<ModelFamily, string> = {
+  ace: 'ACE-Step 1.5 — lekki, 8 kroków',
+  minimax: 'MiniMax-Music-3 — ciężki, faza autoregresywna',
+};
 
 const BRIDGE_URL = 'http://127.0.0.1:3001';
 
@@ -176,7 +182,11 @@ export const ModelCatalogPanel: React.FC<Props> = ({ onReadyChange }) => {
     );
   }
 
-  const poRoli = (rola: ModelRole) => katalog.pliki.filter((p) => p.role === rola);
+  const poRodzinieIRoli = (rodzina: ModelFamily, rola: ModelRole) =>
+    katalog.pliki.filter((p) => family(p) === rodzina && p.role === rola);
+
+  /** Rodziny w kolejności: najpierw ta, która realnie chodzi na tym sprzęcie. */
+  const RODZINY: ModelFamily[] = ['ace', 'minimax'];
 
   return (
     <div className="bg-black/40 border border-purple-500/20 rounded-2xl p-4 space-y-4">
@@ -186,14 +196,14 @@ export const ModelCatalogPanel: React.FC<Props> = ({ onReadyChange }) => {
         <div>
           <span className="text-xs font-bold text-purple-300 font-mono flex items-center gap-1.5 uppercase">
             <HardDrive className="w-4 h-4 text-pink-400" />
-            <span>Katalog Modeli — MiniMax-Music-3</span>
+            <span>Katalog Modeli Muzycznych</span>
           </span>
           <p className="text-[10px] text-slate-500 font-mono mt-1 break-all">
             {katalog.katalog}
           </p>
           <p className="text-[10px] text-slate-600 font-mono">
             Na dysku: <span className="text-slate-400">{humanBytes(katalog.bajtyNaDysku)}</span>
-            {' • '}źródło: <span className="text-slate-400">{katalog.repo}</span>
+            {' • '}rodziny: <span className="text-slate-400">ACE-Step 1.5 + MiniMax-Music-3</span>
           </p>
         </div>
         <button
@@ -282,14 +292,28 @@ export const ModelCatalogPanel: React.FC<Props> = ({ onReadyChange }) => {
         </div>
       </div>
 
-      {/* LISTA PLIKÓW PO ROLACH */}
-      <div className="space-y-3">
+      {/* LISTA PLIKÓW — najpierw rodzina, w niej role */}
+      <div className="space-y-5">
+        {RODZINY.map((rodzina) => (
+          <div key={rodzina} className="space-y-3">
+            <div className={`text-[11px] font-mono font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border ${
+              rodzina === 'ace'
+                ? 'text-emerald-300 bg-emerald-950/30 border-emerald-500/30'
+                : 'text-amber-300/90 bg-amber-950/20 border-amber-500/25'
+            }`}>
+              {FAMILY_LABELS[rodzina]}
+            </div>
         {(['diffusion_models', 'text_encoders', 'vae'] as ModelRole[]).map((rola) => (
-          <div key={rola} className="space-y-1.5">
+          <div key={rola} className="space-y-1.5 pl-1">
             <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">
               {ROLE_LABELS[rola]}
+              {rodzina === 'ace' && rola === 'text_encoders' && (
+                <span className="ml-1.5 text-[9px] text-emerald-400/80 normal-case">
+                  (ACE wymaga OBU)
+                </span>
+              )}
             </span>
-            {poRoli(rola).map((p) => {
+            {poRodzinieIRoli(rodzina, rola).map((p) => {
               const pob = p.pobieranie;
               const leci = pob?.stan === 'pobieranie' || pob?.stan === 'w-kolejce';
               return (
@@ -390,6 +414,8 @@ export const ModelCatalogPanel: React.FC<Props> = ({ onReadyChange }) => {
                 </div>
               );
             })}
+          </div>
+        ))}
           </div>
         ))}
       </div>
