@@ -257,7 +257,10 @@ export async function generateMiniMaxMusic(
     let d: {
       success?: boolean; stan?: string;
       audio?: { filename: string; subfolder: string; type: string; url: string }[];
-      messages?: unknown;
+      /** Czytelny komunikat złożony po stronie mostu (nie surowy JSON ComfyUI) */
+      message?: string;
+      /** Ile zadań stoi przed nami w kolejce ComfyUI */
+      przedNami?: number;
     };
     try {
       const r = await fetch(`${BRIDGE_URL}/api/music/progress?promptId=${encodeURIComponent(promptId)}`);
@@ -268,23 +271,39 @@ export async function generateMiniMaxMusic(
     }
 
     const sekundy = Math.round((Date.now() - startedAt) / 1000);
+    const mmss = `${Math.floor(sekundy / 60)}m ${String(sekundy % 60).padStart(2, '0')}s`;
+
+    if (d.stan === 'przerwane') {
+      onProgress?.({ step: 2, totalSteps: 3, stage: 'PRZERWANE', percentage: 0, log: `⏹️ ${d.message ?? 'Zadanie przerwane.'}` });
+      return nieudane(params, d.message ?? 'Zadanie przerwane.', []);
+    }
 
     if (d.stan === 'blad' || d.success === false) {
-      const opis = JSON.stringify(d.messages ?? {}).slice(0, 400);
-      onProgress?.({ step: 2, totalSteps: 3, stage: 'BLAD', percentage: 0, log: `❌ ComfyUI zgłosił błąd: ${opis}` });
-      return nieudane(params, 'ComfyUI zgłosił błąd wykonania grafu.', [opis]);
+      const opis = d.message ?? 'ComfyUI zgłosił błąd wykonania grafu.';
+      onProgress?.({ step: 2, totalSteps: 3, stage: 'BLAD', percentage: 0, log: `❌ ${opis}` });
+      return nieudane(params, opis, []);
     }
 
     if (d.stan === 'gotowe' && d.audio && d.audio.length > 0) {
       audio = d.audio[0];
-      onProgress?.({ step: 3, totalSteps: 3, stage: 'WYRENDEROWANE', percentage: 90, log: `🔊 ComfyUI zwrócił audio: ${audio.filename} (po ${sekundy}s)` });
+      onProgress?.({ step: 3, totalSteps: 3, stage: 'WYRENDEROWANE', percentage: 90, log: `🔊 ComfyUI zwrócił audio: ${audio.filename} (po ${mmss})` });
       break;
     }
 
+    // ŻADNEGO wymyślonego procentu. ComfyUI nie wystawia po REST postępu w krokach,
+    // więc podajemy to, co wiemy pewnie: stan i czas. `percentage: -1` znaczy
+    // "nieokreślony" — panel rysuje wtedy pasek pulsujący, nie konkretną wartość.
+    const stanOpis = d.stan === 'liczy'
+      ? 'liczy (MiniMax-Music-3 na GPU)'
+      : d.stan === 'w-kolejce'
+        ? `czeka w kolejce ComfyUI${d.przedNami ? ` — przed nami: ${d.przedNami}` : ''}`
+        : (d.stan ?? 'stan nieznany');
+
     onProgress?.({
-      step: 2, totalSteps: 3, stage: (d.stan || 'W_TOKU').toUpperCase(),
-      percentage: 50,
-      log: `⏳ ComfyUI: ${d.stan ?? 'w toku'} (${sekundy}s)`,
+      step: 2, totalSteps: 3,
+      stage: d.stan === 'liczy' ? 'LICZY' : 'W_KOLEJCE',
+      percentage: -1,
+      log: `⏳ ${stanOpis} • ${mmss}`,
     });
   }
 

@@ -76,7 +76,9 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
   // --- Silnik i Wariant ---
   const [engine, setEngine] = useState<MusicEngine>('minimax-dit');
   const [modelVariant, setModelVariant] = useState<MiniMaxModelVariant>('int8');
-  const [cfgScale, setCfgScale] = useState<number>(7.0);
+  // 1.7 to wartosc z oficjalnego szablonu MiniMax Music 3. Typowe dla obrazow 7.0
+  // rujnuje tu dzwiek — ten model chodzi na niskim CFG.
+  const [cfgScale, setCfgScale] = useState<number>(1.7);
   const [diffusionSteps, setDiffusionSteps] = useState<number>(30);
   const [activeTab, setActiveTab] = useState<'prompt' | 'lyrics' | 'params' | 'models'>('prompt');
   /** null = jeszcze nie wiem (most nie odpowiedział), false = brak wag, true = komplet */
@@ -764,7 +766,7 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
                     <span className="text-white font-bold">{cfgScale}</span>
                   </div>
                   <input
-                    type="range" min="1" max="20" step="0.5"
+                    type="range" min="1" max="5" step="0.1"
                     value={cfgScale} onChange={(e) => setCfgScale(parseFloat(e.target.value))}
                     className="w-full accent-purple-500 bg-slate-800 rounded-lg h-1.5"
                   />
@@ -805,7 +807,10 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
             {isGenerating ? (
               <>
                 <RefreshCw className="w-5 h-5 animate-spin text-purple-400" />
-                <span>Przetwarzanie w Rezonansie 0.00G ({progressPct}%)...</span>
+                <span>
+                  Przetwarzanie w Rezonansie 0.00G
+                  {progressPct >= 0 ? ` (${progressPct}%)` : ''}...
+                </span>
               </>
             ) : (
               <>
@@ -832,20 +837,33 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
               </div>
             </div>
 
-            {/* Pasek Postępu Generacji */}
+            {/* Pasek Postępu Generacji.
+                progressPct === -1 znaczy "nie wiem" — ComfyUI nie wystawia po REST
+                postępu w krokach. Zamiast wymyślać 50% rysujemy pasek pulsujący.
+                Uczciwe "nieznany" bije zmyśloną liczbę. */}
             {isGenerating && (
               <div className="space-y-1.5">
                 <div className="flex justify-between text-[11px] font-mono">
                   <span className="text-slate-400">Synteza DiT Latent:</span>
-                  <span className="text-purple-300 font-bold">{progressPct}%</span>
+                  <span className="text-purple-300 font-bold">
+                    {progressPct < 0 ? 'w toku — postęp nieznany' : `${progressPct}%`}
+                  </span>
                 </div>
                 <div className="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-purple-500/30">
-                  <motion.div
-                    className="bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400 h-full rounded-full"
-                    initial={{ width: 0 }}
-                    animate={{ width: `${progressPct}%` }}
-                    transition={{ ease: "easeOut" }}
-                  />
+                  {progressPct < 0 ? (
+                    <motion.div
+                      className="bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400 h-full rounded-full w-1/3"
+                      animate={{ x: ['-100%', '300%'] }}
+                      transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+                    />
+                  ) : (
+                    <motion.div
+                      className="bg-gradient-to-r from-purple-500 via-pink-500 to-cyan-400 h-full rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${progressPct}%` }}
+                      transition={{ ease: 'easeOut' }}
+                    />
+                  )}
                 </div>
               </div>
             )}
