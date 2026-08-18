@@ -91,9 +91,30 @@ const DIT_ID: Record<MiniMaxModelVariant, string> = {
  *   audio_ace_step1_5_xl_base.json  → base: 50 kroków, cfg 6
  * Wysłanie 8 kroków do wariantu `base` dałoby szum zamiast muzyki.
  */
-const ACE_WARIANT: Record<AceModelVariant, { ditId: string; steps: number; cfg: number; opis: string }> = {
-  turbo: { ditId: 'ace-dit-turbo', steps: 8,  cfg: 1, opis: '8 kroków — szybki' },
-  base:  { ditId: 'ace-dit-base',  steps: 50, cfg: 6, opis: '50 kroków — wolniejszy, pełny harmonogram' },
+export const ACE_WARIANT: Record<AceModelVariant, {
+  ditId: string; steps: number; cfg: number; opis: string;
+  krokiMin: number; krokiMax: number; cfgMin: number; cfgMax: number;
+}> = {
+  turbo: {
+    ditId: 'ace-dit-turbo', steps: 8, cfg: 1, opis: '8 kroków — szybki',
+    krokiMin: 4, krokiMax: 24, cfgMin: 0.5, cfgMax: 3,
+  },
+  base: {
+    ditId: 'ace-dit-base', steps: 50, cfg: 6, opis: '50 kroków — wolniejszy, pełny harmonogram',
+    krokiMin: 20, krokiMax: 90, cfgMin: 2, cfgMax: 10,
+  },
+};
+
+/**
+ * Domyślne i zakresy dla MiniMaxa. CFG 1.7 z oficjalnego szablonu
+ * audio_minimax_music_3.json; kroki rosną z precyzją wariantu.
+ */
+export const MINIMAX_WARIANT: Record<MiniMaxModelVariant, {
+  steps: number; cfg: number; krokiMin: number; krokiMax: number; cfgMin: number; cfgMax: number;
+}> = {
+  int8: { steps: 30, cfg: 1.7, krokiMin: 10, krokiMax: 60,  cfgMin: 1, cfgMax: 5 },
+  fp16: { steps: 50, cfg: 1.7, krokiMin: 20, krokiMax: 80,  cfgMin: 1, cfgMax: 5 },
+  fp32: { steps: 80, cfg: 1.7, krokiMin: 30, krokiMax: 120, cfgMin: 1, cfgMax: 5 },
 };
 
 /**
@@ -293,18 +314,17 @@ export async function generateMiniMaxMusic(
         lyrics: params.lyrics || '',
         duration: params.durationSeconds,
         seed: params.seed,
-        // Suwaki CFG i kroków w panelu są skalibrowane pod MiniMaxa (1.7 / 30).
-        // ACE pracuje na 1.0 i 8 krokach — przekazanie tamtych zepsułoby wynik,
-        // więc dla ACE zostawiamy wartości rodziny (most je zna).
-        ...(rodzina === 'minimax' ? { steps: params.steps, cfg: params.cfgScale } : {}),
+        // Suwaki dzialaja dla OBU rodzin — panel podaje wartosci juz przestrojone
+        // pod wybrany silnik (patrz ACE_WARIANT / MINIMAX_WARIANT), wiec przekazujemy
+        // je wprost. Wczesniej ACE je ignorowal, czyli ruch suwakiem nic nie robil.
+        steps: params.steps,
+        cfg: params.cfgScale,
         // ditId per rodzina: suwak int8/fp16/fp32 opisuje warianty MiniMaxa,
         // a turbo/base — warianty ACE. Wysłanie id obcej rodziny most odrzuci,
         // ale lepiej go w ogóle nie wysyłać.
         ...(rodzina === 'minimax' ? { ditId: DIT_ID[params.modelVariant] } : {}),
         ...(rodzina === 'ace' ? {
           ditId: ACE_WARIANT[params.aceVariant ?? 'turbo'].ditId,
-          steps: ACE_WARIANT[params.aceVariant ?? 'turbo'].steps,
-          cfg: ACE_WARIANT[params.aceVariant ?? 'turbo'].cfg,
           bpm: bpmDlaAce(params.bpm),
           ...(keyscale ? { keyscale } : {}),
           language: 'pl',
@@ -351,7 +371,7 @@ export async function generateMiniMaxMusic(
     if (rodzina === 'ace') {
       onProgress?.({
         step: 1, totalSteps: 3, stage: 'W_KOLEJCE', percentage: 10,
-        log: `   ℹ️ ACE ${params.aceVariant ?? 'turbo'}: ${ACE_WARIANT[params.aceVariant ?? 'turbo'].opis}, CFG ${ACE_WARIANT[params.aceVariant ?? 'turbo'].cfg} (wartości z oficjalnego szablonu — suwaki w panelu są pod MiniMaxa).`,
+        log: `   ℹ️ ACE ${params.aceVariant ?? 'turbo'} • ${params.steps} kroków, CFG ${params.cfgScale} (domyślne dla tego wariantu: ${ACE_WARIANT[params.aceVariant ?? 'turbo'].steps} / ${ACE_WARIANT[params.aceVariant ?? 'turbo'].cfg}).`,
       });
     }
   } catch (err) {

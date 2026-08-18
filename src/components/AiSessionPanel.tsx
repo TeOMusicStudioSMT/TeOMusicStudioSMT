@@ -11,6 +11,8 @@ import {
   generateMiniMaxMusic,
   generateHarmonic432HzTone,
   reportBreathEconomyReward,
+  ACE_WARIANT,
+  MINIMAX_WARIANT,
   type MiniMaxModelVariant,
   type AceModelVariant,
   type MusicEngine,
@@ -174,6 +176,24 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
     void pobierz();
     return () => { anulowane = true; };
   }, [activeTab, modelsReady]);
+
+  /**
+   * Nastawy samplera dla AKTUALNIE wybranego silnika — jedno źródło prawdy
+   * dzielone z serwisem. Dzięki temu suwak nie pokazuje zakresu MiniMaxa,
+   * gdy gra ACE (wcześniej pokazywał i był ignorowany przy wysyłce).
+   */
+  const nastawy = React.useMemo(() => {
+    if (engine === 'ace-step') return ACE_WARIANT[aceVariant];
+    return MINIMAX_WARIANT[modelVariant];
+  }, [engine, aceVariant, modelVariant]);
+
+  // Zmiana silnika lub wariantu przestraja suwaki na wartości tego modelu.
+  // Bez tego po przejściu z base (50 kroków) na turbo zostawało 50 — a turbo
+  // ma chodzić na 8 i taki przeskok psuł czas generacji bez wyjaśnienia.
+  useEffect(() => {
+    setDiffusionSteps(nastawy.steps);
+    setCfgScale(nastawy.cfg);
+  }, [nastawy]);
 
   // Auto-scroll logów
   useEffect(() => {
@@ -842,31 +862,68 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
                 </div>
               </div>
 
-              {/* Guidance & Steps */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-slate-400">
-                    <span>CFG Guidance:</span>
-                    <span className="text-white font-bold">{cfgScale}</span>
-                  </div>
-                  <input
-                    type="range" min="1" max="5" step="0.1"
-                    value={cfgScale} onChange={(e) => setCfgScale(parseFloat(e.target.value))}
-                    className="w-full accent-purple-500 bg-slate-800 rounded-lg h-1.5"
-                  />
+              {/* Guidance & Steps — zakresy przestrajane pod wybrany silnik */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">
+                    Sampler — nastawy dla: {SILNIKI.find((x) => x.id === engine)?.nazwa}
+                    {engine === 'ace-step' ? ` (${aceVariant})` : engine === 'minimax-dit' ? ` (${modelVariant})` : ''}
+                  </span>
+                  {(diffusionSteps !== nastawy.steps || cfgScale !== nastawy.cfg) && (
+                    <button
+                      onClick={() => { setDiffusionSteps(nastawy.steps); setCfgScale(nastawy.cfg); }}
+                      className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 hover:text-white hover:border-purple-500/50 transition-colors"
+                    >
+                      przywróć domyślne ({nastawy.steps} / {nastawy.cfg})
+                    </button>
+                  )}
                 </div>
 
-                <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-slate-400">
-                    <span>Kroki Dyfuzji (Steps):</span>
-                    <span className="text-white font-bold">{diffusionSteps}</span>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-slate-400">
+                      <span>CFG Guidance:</span>
+                      <span className="text-white font-bold">
+                        {cfgScale}
+                        {cfgScale === nastawy.cfg && <span className="text-[9px] text-emerald-400 ml-1 font-normal">dom.</span>}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={nastawy.cfgMin} max={nastawy.cfgMax} step="0.1"
+                      value={cfgScale} onChange={(e) => setCfgScale(parseFloat(e.target.value))}
+                      className="w-full accent-purple-500 bg-slate-800 rounded-lg h-1.5"
+                    />
+                    <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                      <span>{nastawy.cfgMin}</span><span>{nastawy.cfgMax}</span>
+                    </div>
                   </div>
-                  <input
-                    type="range" min="10" max="100" step="5"
-                    value={diffusionSteps} onChange={(e) => setDiffusionSteps(parseInt(e.target.value))}
-                    className="w-full accent-purple-500 bg-slate-800 rounded-lg h-1.5"
-                  />
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-slate-400">
+                      <span>Kroki Dyfuzji (Steps):</span>
+                      <span className="text-white font-bold">
+                        {diffusionSteps}
+                        {diffusionSteps === nastawy.steps && <span className="text-[9px] text-emerald-400 ml-1 font-normal">dom.</span>}
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={nastawy.krokiMin} max={nastawy.krokiMax} step="1"
+                      value={diffusionSteps} onChange={(e) => setDiffusionSteps(parseInt(e.target.value))}
+                      className="w-full accent-purple-500 bg-slate-800 rounded-lg h-1.5"
+                    />
+                    <div className="flex justify-between text-[9px] text-slate-600 font-mono">
+                      <span>{nastawy.krokiMin}</span><span>{nastawy.krokiMax}</span>
+                    </div>
+                  </div>
                 </div>
+
+                <p className="text-[10px] text-slate-500 leading-snug">
+                  Wartości domyślne pochodzą z oficjalnych szablonów ComfyUI dla danego modelu.
+                  Więcej kroków = dłuższe liczenie; przy ACE turbo 8 kroków wystarcza,
+                  wariant base potrzebuje ok. 50.
+                </p>
               </div>
             </div>
           )}
