@@ -12,6 +12,7 @@ import {
   generateHarmonic432HzTone,
   reportBreathEconomyReward,
   type MiniMaxModelVariant,
+  type AceModelVariant,
   type MusicEngine,
   type MusicGenerationResult
 } from '../services/minimaxAudioService';
@@ -35,6 +36,33 @@ const PRESET_VIBES = [
   { label: '☕ Neon Lo-Fi Beats', style: 'Chill Lo-Fi Hip Hop, Rainy Neon Tokyo, Vinyl Crackle', bpm: 85, key: 'C Major 7' },
   { label: '🫁 Oddech Zero-G', style: 'Bio-Resonance Meditation, Harmonic Flutes, Theta Waves', bpm: 60, key: 'F# Lydian' },
   { label: '🎹 Chopin in Matrix', style: 'Neo-Classical Cinematic Piano, Orchestral Hybrid Climax', bpm: 110, key: 'E Minor' },
+];
+
+/**
+ * Silniki w kolejności użyteczności na tym sprzęcie.
+ * ACE pierwszy, bo zmierzone: 10 s audio w 28 s liczenia. MiniMax na tej samej
+ * maszynie to ~6h50m na minutę (faza autoregresywna) — stąd ostrzeżenie w opisie.
+ * Suno/Udio zostaje widoczny, ale oznaczony wprost jako niezaimplementowany,
+ * bo po stronie mostu nie ma żadnego endpointu — kliknięcie kończy się odmową.
+ */
+const SILNIKI: {
+  id: MusicEngine; nazwa: string; znacznik: string; opis: string;
+  kolor: string; hex: string; rodzina?: 'ace' | 'minimax'; niedostepny?: boolean;
+}[] = [
+  { id: 'ace-step', nazwa: 'ACE-Step 1.5', znacznik: 'TURBO', hex: '#34d399', kolor: 'emerald',
+    rodzina: 'ace', opis: '8 kroków. BPM i tonacja wprost do modelu, teksty po polsku.' },
+  { id: 'minimax-dit', nazwa: 'MiniMax-Music-3', znacznik: 'DiT', hex: '#a855f7', kolor: 'purple',
+    rodzina: 'minimax', opis: 'Faza autoregresywna — na 16 GB RAM ~7h na minutę.' },
+  { id: 'synth-432', nazwa: 'Syntezator 432Hz', znacznik: 'DSP', hex: '#22d3ee', kolor: 'cyan',
+    opis: 'Czyste fale harmoniczne, liczone w przeglądarce.' },
+  { id: 'suno-udio-bridge', nazwa: 'Suno/Udio Bridge', znacznik: 'v5', hex: '#f472b6', kolor: 'pink',
+    opis: 'Most chmurowy — brak implementacji po stronie mostu.', niedostepny: true },
+];
+
+/** Parametry z oficjalnych szablonów ComfyUI — patrz ACE_WARIANT w serwisie. */
+const ACE_WARIANTY: { id: AceModelVariant; etykieta: string; tytul: string }[] = [
+  { id: 'turbo', etykieta: 'turbo (8 kroków)', tytul: 'Szybki wariant — 8 kroków dyfuzji, CFG 1' },
+  { id: 'base', etykieta: 'base (50 kroków)', tytul: 'Pełny harmonogram — 50 kroków, CFG 6. Znacznie wolniejszy.' },
 ];
 
 const KEYS = [
@@ -74,7 +102,11 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
   const [duration, setDuration] = useState<number>(60);
 
   // --- Silnik i Wariant ---
-  const [engine, setEngine] = useState<MusicEngine>('minimax-dit');
+  // ACE domyślnie — to on realnie liczy na tym sprzęcie (8 kroków vs faza AR MiniMaxa).
+  const [engine, setEngine] = useState<MusicEngine>('ace-step');
+  const [aceVariant, setAceVariant] = useState<AceModelVariant>('turbo');
+  /** Które rodziny wag są realnie gotowe — z mostu, nie z założenia. */
+  const [rodzinyGotowe, setRodzinyGotowe] = useState<Record<string, boolean> | null>(null);
   const [modelVariant, setModelVariant] = useState<MiniMaxModelVariant>('int8');
   // 1.7 to wartosc z oficjalnego szablonu MiniMax Music 3. Typowe dla obrazow 7.0
   // rujnuje tu dzwiek — ten model chodzi na niskim CFG.
@@ -118,6 +150,30 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
       }
     }
   }, [teleportParams]);
+
+  // Które rodziny wag są realnie na dysku — pytamy most, bo tylko on go widzi.
+  // Odświeżamy też po wejściu w Katalog Modeli, bo tam Suweren coś pobiera.
+  useEffect(() => {
+    let anulowane = false;
+    const pobierz = async () => {
+      try {
+        const r = await fetch('http://127.0.0.1:3001/api/music/engine/status');
+        if (!r.ok) return;
+        const d = await r.json();
+        if (anulowane || !d.rodziny) return;
+        const mapa: Record<string, boolean> = {};
+        for (const [k, v] of Object.entries(d.rodziny)) {
+          mapa[k] = !!(v as { wagiGotowe?: boolean }).wagiGotowe;
+        }
+        setRodzinyGotowe(mapa);
+      } catch {
+        // Most śpi — kropki zostają puste, zamiast kłamać że jest gotowe.
+        if (!anulowane) setRodzinyGotowe(null);
+      }
+    };
+    void pobierz();
+    return () => { anulowane = true; };
+  }, [activeTab, modelsReady]);
 
   // Auto-scroll logów
   useEffect(() => {
@@ -216,11 +272,14 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
           keySignature,
           durationSeconds: duration,
           modelVariant,
+          aceVariant,
           engine,
           cfgScale,
           steps: diffusionSteps,
           targetFolder: '_OtakOs_Muzyka',
-          title: `${style.slice(0, 15)} - MiniMax_${modelVariant.toUpperCase()}`
+          title: engine === 'ace-step'
+            ? `${style.slice(0, 15)} - ACE_${aceVariant.toUpperCase()}`
+            : `${style.slice(0, 15)} - MiniMax_${modelVariant.toUpperCase()}`
         },
         (prog) => {
           setProgressPct(prog.percentage);
@@ -253,7 +312,7 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
           </div>
         ), { duration: 5000 });
       } else {
-        toast.error(res.error || 'Błąd generacji MiniMax-Music-3');
+        toast.error(res.error || 'Błąd generacji utworu');
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Błąd krytyczny generacji';
@@ -429,7 +488,17 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-black tracking-wider uppercase text-white flex items-center gap-2">
-                MiniMax-Music-3 <span className="text-xs px-2 py-0.5 bg-purple-900/60 border border-purple-400/40 text-purple-300 rounded-full font-mono">DiT Core 0.00G</span>
+                {SILNIKI.find((x) => x.id === engine)?.nazwa ?? 'Silnik Muzyczny'}{' '}
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full font-mono border"
+                  style={{
+                    background: `${SILNIKI.find((x) => x.id === engine)?.hex ?? '#a855f7'}22`,
+                    borderColor: `${SILNIKI.find((x) => x.id === engine)?.hex ?? '#a855f7'}66`,
+                    color: SILNIKI.find((x) => x.id === engine)?.hex ?? '#a855f7',
+                  }}
+                >
+                  {SILNIKI.find((x) => x.id === engine)?.znacznik ?? ''} Core 0.00G
+                </span>
               </h2>
             </div>
             <p className="text-[11px] text-slate-400 font-mono">
@@ -501,57 +570,72 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
               <span className="text-[10px] text-slate-500 font-mono">DiT Tensor Architecture</span>
             </div>
 
-            <div className="grid grid-cols-3 gap-2.5">
-              {/* MiniMax DiT */}
-              <button
-                onClick={() => setEngine('minimax-dit')}
-                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
-                  engine === 'minimax-dit'
-                    ? 'bg-purple-950/60 border-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)]'
-                    : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <div className="font-bold text-xs flex items-center justify-between">
-                  <span>MiniMax-Music-3</span>
-                  <span className="text-[9px] bg-purple-500/30 text-purple-200 px-1.5 py-0.5 rounded">DiT</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">Lokalna dyfuzja MiniMax</p>
-              </button>
-
-              {/* Suno / Udio Bridge */}
-              <button
-                onClick={() => setEngine('suno-udio-bridge')}
-                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
-                  engine === 'suno-udio-bridge'
-                    ? 'bg-purple-950/60 border-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)]'
-                    : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <div className="font-bold text-xs flex items-center justify-between">
-                  <span>Suno/Udio Bridge</span>
-                  <span className="text-[9px] bg-pink-500/30 text-pink-200 px-1.5 py-0.5 rounded">v5</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">Most Chmurowy Suno/Udio</p>
-              </button>
-
-              {/* 432Hz Bio-Synth */}
-              <button
-                onClick={() => setEngine('synth-432')}
-                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
-                  engine === 'synth-432'
-                    ? 'bg-cyan-950/60 border-cyan-500 text-white shadow-[0_0_15px_rgba(34,211,238,0.3)]'
-                    : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <div className="font-bold text-xs flex items-center justify-between">
-                  <span>Syntezator 432Hz</span>
-                  <span className="text-[9px] bg-cyan-500/30 text-cyan-200 px-1.5 py-0.5 rounded">DSP</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">Czyste Fale Harmoniczne</p>
-              </button>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+              {SILNIKI.map((s) => {
+                const wybrany = engine === s.id;
+                // Kropka gotowości bierze się z mostu (realne wagi na dysku), nie z założenia.
+                const stan = s.rodzina ? rodzinyGotowe?.[s.rodzina] : undefined;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setEngine(s.id)}
+                    className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                      wybrany
+                        ? `bg-${s.kolor}-950/60 border-${s.kolor}-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.3)]`
+                        : 'bg-slate-900/40 border-slate-800 text-slate-400 hover:border-slate-700'
+                    } ${s.niedostepny ? 'opacity-60' : ''}`}
+                    style={wybrany ? { borderColor: s.hex, boxShadow: `0 0 15px ${s.hex}44`, background: `${s.hex}18` } : undefined}
+                  >
+                    <div className="font-bold text-xs flex items-center justify-between gap-1">
+                      <span className="truncate">{s.nazwa}</span>
+                      <span
+                        className="text-[9px] px-1.5 py-0.5 rounded shrink-0"
+                        style={{ background: `${s.hex}33`, color: s.hex }}
+                      >
+                        {s.znacznik}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1 leading-snug">{s.opis}</p>
+                    <div className="mt-1.5 flex items-center gap-1.5 text-[9px] font-mono">
+                      {s.niedostepny ? (
+                        <span className="text-amber-400/90">niezaimplementowany</span>
+                      ) : stan === undefined ? (
+                        <span className="text-slate-600">—</span>
+                      ) : stan ? (
+                        <><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /><span className="text-emerald-400">wagi gotowe</span></>
+                      ) : (
+                        <><span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" /><span className="text-amber-400">brak wag</span></>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Wariant Precyzji MiniMax (int8 / fp16 / fp32) */}
+            {/* Wariant ACE-Step (turbo / base) */}
+            {engine === 'ace-step' && (
+              <div className="pt-2 border-t border-emerald-500/10 flex items-center justify-between gap-4 flex-wrap">
+                <span className="text-xs text-slate-400 font-mono">Wariant Rdzenia:</span>
+                <div className="flex gap-2">
+                  {ACE_WARIANTY.map((w) => (
+                    <button
+                      key={w.id}
+                      onClick={() => setAceVariant(w.id)}
+                      title={w.tytul}
+                      className={`px-3 py-1 rounded-lg text-xs font-mono border transition-all ${
+                        aceVariant === w.id
+                          ? 'bg-emerald-600 text-white border-emerald-400 font-bold'
+                          : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                      }`}
+                    >
+                      {w.etykieta}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Wariant precyzji MiniMax (int8 / fp16 / fp32) — tylko dla tej rodziny */}
             {engine === 'minimax-dit' && (
               <div className="pt-2 border-t border-purple-500/10 flex items-center justify-between gap-4">
                 <span className="text-xs text-slate-400 font-mono">Wariant Wyciszenia (VRAM):</span>
@@ -913,7 +997,9 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
                   {result ? result.title : 'Gotowy do Odtwarzania'}
                 </h4>
                 <p className="text-[10px] text-slate-400 font-mono">
-                  {result ? `Model: MiniMax-Music-3 (${result.modelVariant.toUpperCase()})` : 'Czekam na wygenerowanie utworu'}
+                  {result
+                    ? `Model: ${SILNIKI.find((x) => x.id === result.engine)?.nazwa ?? result.engine}`
+                    : 'Czekam na wygenerowanie utworu'}
                 </p>
               </div>
 

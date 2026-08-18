@@ -12,7 +12,16 @@
  */
 
 export type MiniMaxModelVariant = 'int8' | 'fp16' | 'fp32';
-export type MusicEngine = 'minimax-dit' | 'suno-udio-bridge' | 'synth-432';
+/** Warianty rdzenia ACE-Step 1.5. `turbo` = 8 kroków, `base` = pełny harmonogram. */
+export type AceModelVariant = 'turbo' | 'base';
+export type MusicEngine = 'ace-step' | 'minimax-dit' | 'suno-udio-bridge' | 'synth-432';
+/** Rodzina wag. Wagi jednej rodziny NIE łączą się z wagami drugiej. */
+export type MusicFamily = 'ace' | 'minimax';
+
+/** Silnik wybrany w panelu → rodzina wag po stronie mostu. */
+export function rodzinaDlaSilnika(engine: MusicEngine): MusicFamily {
+  return engine === 'ace-step' ? 'ace' : 'minimax';
+}
 
 export interface MusicGenerationRequest {
   title?: string;
@@ -23,6 +32,8 @@ export interface MusicGenerationRequest {
   keySignature: string;
   durationSeconds: number;
   modelVariant: MiniMaxModelVariant;
+  /** Używany tylko gdy engine === 'ace-step'. */
+  aceVariant?: AceModelVariant;
   engine: MusicEngine;
   seed?: number;
   cfgScale?: number;
@@ -71,6 +82,18 @@ const DIT_ID: Record<MiniMaxModelVariant, string> = {
   int8: 'dit-int8',
   fp16: 'dit-fp16',
   fp32: 'dit-fp32',
+};
+
+/**
+ * Wariant ACE → id pliku i parametry samplera.
+ * Liczby wzięte z oficjalnych szablonów ComfyUI (nie zgadnięte):
+ *   audio_ace_step_1_5_split.json   → turbo: 8 kroków, cfg 1
+ *   audio_ace_step1_5_xl_base.json  → base: 50 kroków, cfg 6
+ * Wysłanie 8 kroków do wariantu `base` dałoby szum zamiast muzyki.
+ */
+const ACE_WARIANT: Record<AceModelVariant, { ditId: string; steps: number; cfg: number; opis: string }> = {
+  turbo: { ditId: 'ace-dit-turbo', steps: 8,  cfg: 1, opis: '8 kroków — szybki' },
+  base:  { ditId: 'ace-dit-base',  steps: 50, cfg: 6, opis: '50 kroków — wolniejszy, pełny harmonogram' },
 };
 
 /**
@@ -222,11 +245,23 @@ export async function generateMiniMaxMusic(
     log: `🔍 Sprawdzam gotowość silnika (wagi + ComfyUI + workflow)...`,
   });
 
-  // Która rodzina realnie ma komplet wag? Pytamy most, bo tylko on widzi dysk.
-  // To ISTOTNE: wagi rodzin się nie mieszają. Wysłanie id DiT MiniMaxa do grafu ACE
-  // kończy się `KeyError: 'conditioning_scale'` — po kilkunastu minutach liczenia.
+  // Rodzina wynika z WYBORU SUWERENA w panelu — kafelek silnika decyduje.
+  // Wcześniej brałem tu `gotowaRodzina` z mostu, co ignorowało kliknięcie.
+  // Most i tak zweryfikuje wagi i odmówi, jeśli tej rodziny brakuje.
+  const rodzina = rodzinaDlaSilnika(params.engine);
+
+  // Wczesne ostrzeżenie: most i tak zweryfikuje wagi i odmówi, ale lepiej powiedzieć
+  // to od razu, niż po kilkunastu sekundach oczekiwania na odpowiedź.
   const stanSilnika = await checkEngineStatus();
-  const rodzina = stanSilnika.gotowaRodzina ?? 'ace';
+  if (!stanSilnika.mostOnline) {
+    return nieudane(params, 'Wiesio-Bridge nie odpowiada na 127.0.0.1:3001.', stanSilnika.braki);
+  }
+  if (stanSilnika.gotowaRodzina && stanSilnika.gotowaRodzina !== rodzina) {
+    onProgress?.({
+      step: 0, totalSteps: 1, stage: 'PRZEGLAD', percentage: 0,
+      log: `⚠️ Wybrano ${rodzina.toUpperCase()}, ale komplet wag ma ${stanSilnika.gotowaRodzina.toUpperCase()}. Jeśli brakuje plików, most zaraz odmówi i powie których.`,
+    });
+  }
   onProgress?.({
     step: 0, totalSteps: 1, stage: 'PRZEGLAD', percentage: 0,
     log: `🧠 Rodzina silnika: ${rodzina === 'ace' ? 'ACE-Step 1.5 turbo (8 kroków)' : 'MiniMax-Music-3 (faza autoregresywna)'}`,
@@ -262,10 +297,14 @@ export async function generateMiniMaxMusic(
         // ACE pracuje na 1.0 i 8 krokach — przekazanie tamtych zepsułoby wynik,
         // więc dla ACE zostawiamy wartości rodziny (most je zna).
         ...(rodzina === 'minimax' ? { steps: params.steps, cfg: params.cfgScale } : {}),
-        // ditId TYLKO dla MiniMaxa. Suwak int8/fp16/fp32 opisuje warianty MiniMaxa,
-        // a wyslanie go przy grafie ACE podmienialo DiT na obcy i wywalalo sampler.
+        // ditId per rodzina: suwak int8/fp16/fp32 opisuje warianty MiniMaxa,
+        // a turbo/base — warianty ACE. Wysłanie id obcej rodziny most odrzuci,
+        // ale lepiej go w ogóle nie wysyłać.
         ...(rodzina === 'minimax' ? { ditId: DIT_ID[params.modelVariant] } : {}),
         ...(rodzina === 'ace' ? {
+          ditId: ACE_WARIANT[params.aceVariant ?? 'turbo'].ditId,
+          steps: ACE_WARIANT[params.aceVariant ?? 'turbo'].steps,
+          cfg: ACE_WARIANT[params.aceVariant ?? 'turbo'].cfg,
           bpm: bpmDlaAce(params.bpm),
           ...(keyscale ? { keyscale } : {}),
           language: 'pl',
@@ -312,7 +351,7 @@ export async function generateMiniMaxMusic(
     if (rodzina === 'ace') {
       onProgress?.({
         step: 1, totalSteps: 3, stage: 'W_KOLEJCE', percentage: 10,
-        log: `   ℹ️ ACE używa własnych: 8 kroków, CFG 1.0 (suwaki w panelu są pod MiniMaxa).`,
+        log: `   ℹ️ ACE ${params.aceVariant ?? 'turbo'}: ${ACE_WARIANT[params.aceVariant ?? 'turbo'].opis}, CFG ${ACE_WARIANT[params.aceVariant ?? 'turbo'].cfg} (wartości z oficjalnego szablonu — suwaki w panelu są pod MiniMaxa).`,
       });
     }
   } catch (err) {
