@@ -66,12 +66,34 @@ export interface BreathEconomyRewardResult {
 const BRIDGE_URL = 'http://127.0.0.1:3001';
 const DEFAULT_TARGET_FOLDER = '_OtakOs_Muzyka';
 
-/** Wariant precyzji DiT → id pliku w katalogu modeli. */
+/** Wariant precyzji DiT → id pliku w katalogu modeli. TYLKO dla rodziny MiniMax. */
 const DIT_ID: Record<MiniMaxModelVariant, string> = {
   int8: 'dit-int8',
   fp16: 'dit-fp16',
   fp32: 'dit-fp32',
 };
+
+/**
+ * Tonacja z panelu ("A Minor (432Hz)", "528Hz Solfeggio Harmonic") → format,
+ * który ACE-Step przyjmuje na wejściu `keyscale` ("A minor").
+ * Zwraca null, gdy nie da się sensownie zmapować — wtedy nie wysyłamy nic
+ * i model zostaje przy swojej wartości domyślnej, zamiast dostać śmieć.
+ */
+export function keyscaleDlaAce(tonacja: string): string | null {
+  const m = tonacja.match(/^([A-G][#b]?)\s*(major|minor|dur|moll)/i);
+  if (m) {
+    const nuta = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+    const tryb = /min|moll/i.test(m[2]) ? 'minor' : 'major';
+    return `${nuta} ${tryb}`;
+  }
+  // Tryby kościelne i "częstotliwościowe" presety nie mają odpowiednika w liście ACE.
+  return null;
+}
+
+/** BPM z panelu → zakres akceptowany przez ACE. */
+function bpmDlaAce(bpm: number): number {
+  return Math.max(40, Math.min(200, Math.round(bpm)));
+}
 
 /**
  * Zgłasza akcję WYNIK (+100 GRV) do Ekonomii Oddechu.
@@ -127,16 +149,26 @@ interface EngineStatus {
 }
 
 /** Pyta most, czy silnik jest realnie gotowy — i czego brakuje, jeśli nie. */
-export async function checkEngineStatus(): Promise<EngineStatus & { mostOnline: boolean }> {
+export async function checkEngineStatus(): Promise<
+  EngineStatus & { mostOnline: boolean; gotowaRodzina: 'ace' | 'minimax' | null }
+> {
   try {
     const r = await fetch(`${BRIDGE_URL}/api/music/engine/status`);
-    if (!r.ok) return { mostOnline: true, gotowy: false, braki: [`Most odpowiedział HTTP ${r.status}`] };
+    if (!r.ok) {
+      return { mostOnline: true, gotowy: false, gotowaRodzina: null, braki: [`Most odpowiedział HTTP ${r.status}`] };
+    }
     const d = await r.json();
-    return { mostOnline: true, gotowy: !!d.gotowy, braki: d.braki ?? [] };
+    return {
+      mostOnline: true,
+      gotowy: !!d.gotowy,
+      gotowaRodzina: d.gotowaRodzina ?? null,
+      braki: d.braki ?? [],
+    };
   } catch {
     return {
       mostOnline: false,
       gotowy: false,
+      gotowaRodzina: null,
       braki: ['Wiesio-Bridge nie odpowiada na 127.0.0.1:3001 — odpal Katedrę.'],
     };
   }
@@ -190,6 +222,24 @@ export async function generateMiniMaxMusic(
     log: `🔍 Sprawdzam gotowość silnika (wagi + ComfyUI + workflow)...`,
   });
 
+  // Która rodzina realnie ma komplet wag? Pytamy most, bo tylko on widzi dysk.
+  // To ISTOTNE: wagi rodzin się nie mieszają. Wysłanie id DiT MiniMaxa do grafu ACE
+  // kończy się `KeyError: 'conditioning_scale'` — po kilkunastu minutach liczenia.
+  const stanSilnika = await checkEngineStatus();
+  const rodzina = stanSilnika.gotowaRodzina ?? 'ace';
+  onProgress?.({
+    step: 0, totalSteps: 1, stage: 'PRZEGLAD', percentage: 0,
+    log: `🧠 Rodzina silnika: ${rodzina === 'ace' ? 'ACE-Step 1.5 turbo (8 kroków)' : 'MiniMax-Music-3 (faza autoregresywna)'}`,
+  });
+
+  const keyscale = keyscaleDlaAce(params.keySignature);
+  if (rodzina === 'ace' && !keyscale) {
+    onProgress?.({
+      step: 0, totalSteps: 1, stage: 'PRZEGLAD', percentage: 0,
+      log: `ℹ️ Tonacja "${params.keySignature}" nie ma odpowiednika na liście ACE — zostawiam domyślną modelu.`,
+    });
+  }
+
   // 1) Kolejkujemy w moście. Most sam weryfikuje wagi, ComfyUI i workflow,
   //    i zwraca 424 z konkretną listą braków — nie zgadujemy tutaj.
   let promptId: string;
@@ -199,13 +249,27 @@ export async function generateMiniMaxMusic(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        prompt: `${params.prompt}\n\nStyl: ${params.style} | BPM: ${params.bpm} | Tonacja: ${params.keySignature}`,
+        rodzina,
+        // ACE ma osobne wejscia na tempo i tonacje, wiec opis zostaje czystym opisem.
+        // MiniMax ich nie ma — tam trzeba je wcisnac w tekst, inaczej model ich nie pozna.
+        prompt: rodzina === 'ace'
+          ? `${params.prompt}\n\n${params.style}`
+          : `${params.prompt}\n\nStyl: ${params.style} | BPM: ${params.bpm} | Tonacja: ${params.keySignature}`,
         lyrics: params.lyrics || '',
         duration: params.durationSeconds,
         seed: params.seed,
-        steps: params.steps,
-        cfg: params.cfgScale,
-        ditId: DIT_ID[params.modelVariant],
+        // Suwaki CFG i kroków w panelu są skalibrowane pod MiniMaxa (1.7 / 30).
+        // ACE pracuje na 1.0 i 8 krokach — przekazanie tamtych zepsułoby wynik,
+        // więc dla ACE zostawiamy wartości rodziny (most je zna).
+        ...(rodzina === 'minimax' ? { steps: params.steps, cfg: params.cfgScale } : {}),
+        // ditId TYLKO dla MiniMaxa. Suwak int8/fp16/fp32 opisuje warianty MiniMaxa,
+        // a wyslanie go przy grafie ACE podmienialo DiT na obcy i wywalalo sampler.
+        ...(rodzina === 'minimax' ? { ditId: DIT_ID[params.modelVariant] } : {}),
+        ...(rodzina === 'ace' ? {
+          bpm: bpmDlaAce(params.bpm),
+          ...(keyscale ? { keyscale } : {}),
+          language: 'pl',
+        } : {}),
         tiledDecode: true,
       }),
     });
@@ -235,9 +299,21 @@ export async function generateMiniMaxMusic(
       log: `✅ Graf w kolejce ComfyUI (id: ${promptId}, seed: ${seed})`,
     });
     if (Array.isArray(d.podmienione)) {
-      for (const p of d.podmienione.slice(0, 12)) {
+      for (const p of d.podmienione.slice(0, 14)) {
         onProgress?.({ step: 1, totalSteps: 3, stage: 'W_KOLEJCE', percentage: 10, log: `   ⚙️ ${p}` });
       }
+    }
+    // Most odrzucił wagę z obcej rodziny — mówimy o tym, zamiast milczeć.
+    if (Array.isArray(d.poprawione)) {
+      for (const p of d.poprawione) {
+        onProgress?.({ step: 1, totalSteps: 3, stage: 'W_KOLEJCE', percentage: 10, log: `   ⚠️ Most poprawił: ${p}` });
+      }
+    }
+    if (rodzina === 'ace') {
+      onProgress?.({
+        step: 1, totalSteps: 3, stage: 'W_KOLEJCE', percentage: 10,
+        log: `   ℹ️ ACE używa własnych: 8 kroków, CFG 1.0 (suwaki w panelu są pod MiniMaxa).`,
+      });
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
