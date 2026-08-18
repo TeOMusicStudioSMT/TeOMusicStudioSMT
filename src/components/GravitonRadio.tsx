@@ -8,7 +8,7 @@
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Radio, Play, Pause, SkipForward, SkipBack, Shuffle, WifiOff, ListMusic } from 'lucide-react';
+import { Radio, Play, Pause, SkipForward, SkipBack, Shuffle, WifiOff, ListMusic, Mic2, Loader2 } from 'lucide-react';
 
 interface RadioTrack {
   id: string;
@@ -29,6 +29,17 @@ const GravitonRadio: React.FC = () => {
   const [bridgeOffline, setBridgeOffline] = useState(false);
   const [showPlaylist, setShowPlaylist] = useState(false);
   const [bars, setBars] = useState<number[]>(() => Array(BAR_COUNT).fill(4));
+
+  // ── 📻 TRYB DJ — Joanna zapowiada utwory ────────────────────────
+  // Tekst zapowiedzi robi most (/api/joanna/zapowiedz), GŁOS daje przeglądarka
+  // (speechSynthesis). Świadomie tak: lokalnego silnika mowy węzeł nie ma,
+  // a udawanie studyjnego lektora byłoby atrapą.
+  const [trybDj, setTrybDj] = useState<boolean>(() => {
+    try { return localStorage.getItem('teo_radio_dj') === '1'; } catch { return false; }
+  });
+  const [zapowiedz, setZapowiedz] = useState<string | null>(null);
+  const [mowi, setMowi] = useState(false);
+  const poprzedniTytul = useRef<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -136,14 +147,78 @@ const GravitonRadio: React.FC = () => {
     playTrack(idx);
   }, [tracks.length, currentIndex, playTrack]);
 
-  // Auto-next po zakończeniu utworu (radio nie milknie)
+  /**
+   * Wypowiada zdanie głosem przeglądarki. Zwraca dopiero po skończeniu mowy,
+   * żeby muzyka nie wjeżdżała Joannie w słowo.
+   * Gdy przeglądarka nie ma polskiego głosu — i tak mówi (domyślnym), bo cisza
+   * byłaby gorsza; tekst widać też na ekranie.
+   */
+  const powiedz = useCallback((tekst: string) => new Promise<void>((resolve) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) { resolve(); return; }
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(tekst);
+      const glosy = window.speechSynthesis.getVoices();
+      const pl = glosy.find((g) => /^pl/i.test(g.lang));
+      if (pl) u.voice = pl;
+      u.lang = pl?.lang ?? 'pl-PL';
+      u.rate = 1.02;
+      u.pitch = 1.15;
+      u.onend = () => resolve();
+      u.onerror = () => resolve();
+      window.speechSynthesis.speak(u);
+      // Bezpiecznik: gdy głos utknie, nie zawieszamy radia na zawsze.
+      setTimeout(resolve, 15000);
+    } catch { resolve(); }
+  }), []);
+
+  /** Pobiera zapowiedź z mostu i wypowiada ją. Cicho pomija, gdy most milczy. */
+  const zapowiedzUtwor = useCallback(async (tytul: string) => {
+    setMowi(true);
+    try {
+      const r = await fetch(`${BRIDGE}/api/joanna/zapowiedz`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ utwor: tytul, poprzedni: poprzedniTytul.current }),
+      });
+      const d = await r.json();
+      if (d.success && d.zapowiedz) {
+        setZapowiedz(d.zapowiedz);
+        await powiedz(d.zapowiedz);
+      }
+    } catch {
+      // Most śpi — radio gra dalej bez zapowiedzi, zamiast się zatrzymać.
+    } finally {
+      setMowi(false);
+    }
+  }, [powiedz]);
+
+  // Auto-next po zakończeniu utworu (radio nie milknie).
+  // W trybie DJ najpierw idzie zapowiedź, potem dopiero muzyka.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    const onEnded = () => playTrack(currentIndex + 1);
+    const onEnded = async () => {
+      const nastepny = tracks[(currentIndex + 1) % (tracks.length || 1)];
+      poprzedniTytul.current = tracks[currentIndex]?.title ?? null;
+      if (trybDj && nastepny) await zapowiedzUtwor(nastepny.title);
+      playTrack(currentIndex + 1);
+    };
     el.addEventListener('ended', onEnded);
     return () => el.removeEventListener('ended', onEnded);
-  }, [playTrack, currentIndex]);
+  }, [playTrack, currentIndex, trybDj, tracks, zapowiedzUtwor]);
+
+  // Wyciszenie mowy przy wyjściu z modułu — inaczej Joanna gada po zamknięciu.
+  useEffect(() => () => { try { window.speechSynthesis?.cancel(); } catch { /* brak API */ } }, []);
+
+  const przelaczDj = useCallback(() => {
+    setTrybDj((v) => {
+      const nowy = !v;
+      try { localStorage.setItem('teo_radio_dj', nowy ? '1' : '0'); } catch { /* brak storage */ }
+      if (!nowy) { try { window.speechSynthesis?.cancel(); } catch { /* brak API */ } setZapowiedz(null); }
+      return nowy;
+    });
+  }, []);
 
   // Sprzątanie przy odmontowaniu
   useEffect(() => () => {
@@ -204,6 +279,25 @@ const GravitonRadio: React.FC = () => {
       </div>
 
       {/* Aktualny utwór */}
+      {/* Zapowiedź Joanny — pokazujemy TEKST, nawet gdy przeglądarka nie ma
+          polskiego głosu. Lepiej przeczytać niż nie wiedzieć, co powiedziała. */}
+      <AnimatePresence>
+        {trybDj && zapowiedz && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="mb-3 mx-auto max-w-md rounded-2xl px-4 py-2.5 border flex items-start gap-2"
+            style={{ background: 'rgba(168,85,247,0.10)', borderColor: 'rgba(168,85,247,0.35)' }}
+          >
+            {mowi
+              ? <Loader2 className="w-3.5 h-3.5 mt-0.5 shrink-0 animate-spin text-purple-300" />
+              : <Mic2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-purple-300" />}
+            <span className="text-[11px] text-purple-100 leading-snug italic">{zapowiedz}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="text-center mb-6 min-h-[3rem]">
         <div className="text-white font-bold truncate">{currentTrack?.title ?? '—'}</div>
         <div className="text-[10px] text-slate-500 mt-1">
@@ -213,6 +307,16 @@ const GravitonRadio: React.FC = () => {
 
       {/* Sterowanie */}
       <div className="flex items-center justify-center gap-4">
+        <button
+          onClick={przelaczDj}
+          className="p-3 transition-colors"
+          style={{ color: trybDj ? '#c084fc' : '#94a3b8' }}
+          title={trybDj
+            ? 'Tryb DJ włączony — Joanna zapowiada utwory (głos przeglądarki)'
+            : 'Włącz tryb DJ — Joanna będzie zapowiadać utwory między nagraniami'}
+        >
+          <Mic2 className="w-4 h-4" />
+        </button>
         <button onClick={shuffle} className="p-3 text-slate-400 hover:text-cyan-300 transition-colors" title="Losowy utwór">
           <Shuffle className="w-4 h-4" />
         </button>
