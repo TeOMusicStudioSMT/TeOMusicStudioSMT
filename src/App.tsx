@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Radio, Activity, Mic2, ArrowLeft
+  Radio, Activity, Mic2, ArrowLeft, Grid3x3
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import BioResonanceEngine from './components/BioResonanceEngine';
@@ -9,6 +9,7 @@ import GravitonRadio from './components/GravitonRadio';
 import GhostCursor from './components/GhostCursor';
 import HolographicCard from './components/HolographicCard';
 import AiSessionPanel from './components/AiSessionPanel';
+import BitGridPanel from './components/BitGridPanel';
 
 interface TeleportParams {
   style: string;
@@ -25,6 +26,14 @@ function getInitialTeleport(): { params: TeleportParams | null; active: string |
   const query = new URLSearchParams(window.location.search);
   const style = query.get('style');
   const prompt = query.get('prompt');
+
+  // Wejście wprost w moduł: /?modul=bity — pozwala Katedrze (i Joannie)
+  // teleportować Suwerena od razu tam, gdzie trzeba, zamiast na landing.
+  const modul = query.get('modul');
+  const ZNANE_MODULY = ['ai', 'bity', 'radio', 'engine'];
+  if (modul && ZNANE_MODULY.includes(modul) && !style && !prompt) {
+    return { params: null, active: modul };
+  }
 
   if (style || prompt) {
     const tags = query.get('tags') ? (query.get('tags') || '').split(',') : [];
@@ -118,6 +127,14 @@ function App() {
               />
 
               <HolographicCard
+                title="Panel Bitów"
+                description="Step-Grid 0.00G. Perkusja syntezowana, strojenie 432Hz."
+                icon={Grid3x3}
+                color="#00f3ff"
+                onClick={() => setActiveModule('bity')}
+              />
+
+              <HolographicCard
                 title="Graviton Radio"
                 description="Tune into the frequencies of the network."
                 icon={Radio}
@@ -154,6 +171,9 @@ function App() {
           >
             {/* ⚙️ MODUŁ BIO-REZONANSU */}
             {activeModule === 'engine' && <BioResonanceEngine />}
+
+            {/* 🥁 PANEL BITÓW — sekwencer krokowy */}
+            {activeModule === 'bity' && <BitGridPanel />}
 
             {/* 📻 GRAVITON RADIO — strumień z lokalnej biblioteki Katedry */}
             {activeModule === 'radio' && <GravitonRadio />}
