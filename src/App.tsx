@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Radio, Activity, Mic2, ArrowLeft, Grid3x3
+  Radio, Activity, Mic2, ArrowLeft, Grid3x3, Scissors
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import BioResonanceEngine from './components/BioResonanceEngine';
@@ -10,6 +10,7 @@ import GhostCursor from './components/GhostCursor';
 import HolographicCard from './components/HolographicCard';
 import AiSessionPanel from './components/AiSessionPanel';
 import BitGridPanel from './components/BitGridPanel';
+import RzezbaPanel from './components/RzezbaPanel';
 
 interface TeleportParams {
   style: string;
@@ -30,7 +31,7 @@ function getInitialTeleport(): { params: TeleportParams | null; active: string |
   // Wejście wprost w moduł: /?modul=bity — pozwala Katedrze (i Joannie)
   // teleportować Suwerena od razu tam, gdzie trzeba, zamiast na landing.
   const modul = query.get('modul');
-  const ZNANE_MODULY = ['ai', 'bity', 'radio', 'engine'];
+  const ZNANE_MODULY = ['ai', 'bity', 'rzezba', 'radio', 'engine'];
   if (modul && ZNANE_MODULY.includes(modul) && !style && !prompt) {
     return { params: null, active: modul };
   }
@@ -135,6 +136,14 @@ function App() {
               />
 
               <HolographicCard
+                title="Rzeźba Audio"
+                description="Cięcie, pętle, pasma i prawdziwe stemy (Demucs)."
+                icon={Scissors}
+                color="#5eead4"
+                onClick={() => setActiveModule('rzezba')}
+              />
+
+              <HolographicCard
                 title="Graviton Radio"
                 description="Tune into the frequencies of the network."
                 icon={Radio}
@@ -174,6 +183,9 @@ function App() {
 
             {/* 🥁 PANEL BITÓW — sekwencer krokowy */}
             {activeModule === 'bity' && <BitGridPanel />}
+
+            {/* ✂️ RZEŹBA AUDIO — cięcie, pętle, pasma, stemy */}
+            {activeModule === 'rzezba' && <RzezbaPanel />}
 
             {/* 📻 GRAVITON RADIO — strumień z lokalnej biblioteki Katedry */}
             {activeModule === 'radio' && <GravitonRadio />}
