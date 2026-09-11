@@ -11,6 +11,7 @@ import HolographicCard from './components/HolographicCard';
 import AiSessionPanel from './components/AiSessionPanel';
 import BitGridPanel from './components/BitGridPanel';
 import RzezbaPanel from './components/RzezbaPanel';
+import { JoannaPopup } from './components/JoannaPopup';
 
 interface TeleportParams {
   style: string;
@@ -209,6 +210,10 @@ function App() {
           </motion.div>
         )}
       </AnimatePresence>
+      {/* 🕊️ V3: Joanna — TeOgochi od muzyki wyglądająca zza krawędzi ekranu.
+          Stan i ikona z mostu (/api/teogochi/stado); panel prowadzi do modułów tej apki
+          oraz do tras, które istnieją (Cinema → /api/montazownia/skomponuj). */}
+      <JoannaPopup onModul={(m) => setActiveModule(m)} />
     </div>
   );
 }
