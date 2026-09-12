@@ -134,6 +134,10 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
   const [volume, setVolume] = useState<number>(0.85);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isStagingTeledysk, setIsStagingTeledysk] = useState<boolean>(false);
+  // 🎵→🎬 Teledysk z NOWYCH scen: Joanna mówi Opowieści, o czym utwór → projekt Story → kadry od zera.
+  const [nowyTeledysk, setNowyTeledysk] = useState<null | { serial: string; joanna: { tytul: string; oCzym: string; swiat: string; motyw: string; model: string }; kadrowSzacunkowo: number; sekundy: number; odcinek: { id: string; numer: number } }>(null);
+  const [tworzyTeledysk, setTworzyTeledysk] = useState(false);
+  const [realizuje, setRealizuje] = useState(false);
   const [grvBalance, setGrvBalance] = useState<number>(() => {
     return parseInt(localStorage.getItem('teo_grv_balance') || '1200', 10);
   });
@@ -469,6 +473,53 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
       });
     } catch {
       window.open(result.audioUrl, '_blank');
+    }
+  };
+
+  /**
+   * Teledysk z nowych scen. Suweren (2026-09-12): „Katedra Teledysk to sklejanie
+   * z przygotowanych scen — chciałbym też wybór, by Joanna powiedziała o czym
+   * utwór do Opowieści i zbudowali teledysk z całkiem nowych scen".
+   * Most: Joanna (model) → projekt Story z odcinkiem o długości utworu + utwór
+   * jako motyw przewodni. Kadry pisze Reżyser, produkcja idzie nocą albo „teraz".
+   */
+  const handleNowyTeledysk = async () => {
+    if (!result) return;
+    setTworzyTeledysk(true);
+    try {
+      const res = await fetch('http://127.0.0.1:3001/api/teledysk/nowy', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audioPlik: result.savedPath || undefined,
+          audioUrl: !result.savedPath && /^https?:/i.test(result.audioUrl) ? result.audioUrl : undefined,
+          tytul: result.title, styl: style, prompt, lyrics, sekundy: result.duration,
+        }),
+      });
+      const d = await res.json();
+      if (!d.success) throw new Error(d.message || 'most odmówił');
+      setNowyTeledysk(d);
+      toast.success(`Joanna opowiedziała Reżyserowi: „${d.joanna.tytul}" — projekt „${d.serial}", ~${d.kadrowSzacunkowo} kadrów.`, { duration: 9000 });
+    } catch (e) {
+      toast.error(`Teledysk z nowych scen: ${e instanceof Error ? e.message : String(e)}`, { duration: 9000 });
+    } finally {
+      setTworzyTeledysk(false);
+    }
+  };
+
+  const handleRealizujTeledysk = async () => {
+    if (!nowyTeledysk) return;
+    setRealizuje(true);
+    try {
+      const res = await fetch('http://127.0.0.1:3001/api/rezyser/tablica/zrealizuj', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ serial: nowyTeledysk.serial }),
+      });
+      const d = await res.json();
+      if (!d.success) throw new Error(d.message || 'most odmówił');
+      toast.success('Reżyser pisze kadry, potem Klatka liczy — to godziny na karcie. Postęp w Katedrze (Nocna Zmiana / Story).', { duration: 10000 });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRealizuje(false);
     }
   };
 
@@ -1158,8 +1209,33 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
                 >
                   {isStagingTeledysk ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>🎬 Katedra Teledysk</span>}
                 </button>
+
+                <button
+                  onClick={handleNowyTeledysk}
+                  disabled={!result || tworzyTeledysk}
+                  className="px-3 py-2.5 rounded-xl bg-gradient-to-r from-fuchsia-600 to-purple-700 hover:from-fuchsia-500 hover:to-purple-600 text-white font-bold text-xs font-mono transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 shadow-md"
+                  title="Joanna opowiada Reżyserowi, o czym jest utwór — teledysk z całkiem nowych scen (nie sklejka)"
+                >
+                  {tworzyTeledysk ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>🕊️ Teledysk z nowych scen</span>}
+                </button>
               </div>
             </div>
+
+            {nowyTeledysk && (
+              <div className="mt-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-950/20 p-3 text-xs">
+                <div className="font-mono text-[10px] uppercase tracking-widest text-fuchsia-300">🕊️ Joanna → Reżyser · projekt „{nowyTeledysk.serial}" · {nowyTeledysk.joanna.model}</div>
+                <div className="mt-1 font-bold text-white">{nowyTeledysk.joanna.tytul}</div>
+                <p className="mt-1 text-slate-300">{nowyTeledysk.joanna.oCzym}</p>
+                {nowyTeledysk.joanna.swiat && <p className="mt-1 text-slate-400">Świat: {nowyTeledysk.joanna.swiat}</p>}
+                {nowyTeledysk.joanna.motyw && <p className="mt-1 text-slate-400">Motyw refrenu: {nowyTeledysk.joanna.motyw}</p>}
+                <div className="mt-1 font-mono text-[10px] text-slate-500">odcinek #{nowyTeledysk.odcinek.numer} · {Math.round(nowyTeledysk.sekundy)} s · ~{nowyTeledysk.kadrowSzacunkowo} kadrów po ~2 s · utwór wpięty jako motyw przewodni; montaż podłoży go pod film</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <a href={`http://localhost:5174/?serial=${encodeURIComponent(nowyTeledysk.serial)}`} target="_blank" rel="noreferrer" className="rounded-lg border border-fuchsia-400/50 px-3 py-1.5 text-fuchsia-100 hover:bg-fuchsia-500/20">Otwórz w Story (Reżyser)</a>
+                  <button onClick={handleRealizujTeledysk} disabled={realizuje} className="rounded-lg bg-fuchsia-500/30 px-3 py-1.5 text-fuchsia-100 hover:bg-fuchsia-500/50 disabled:opacity-40">{realizuje ? 'zlecam…' : 'Realizuj teraz (kadry → ruch → montaż)'}</button>
+                  <span className="self-center text-[10px] text-slate-500">albo nocą: Katedra → Nocna Zmiana → „Zrealizuj Tablicę Reżysera" → ten projekt</span>
+                </div>
+              </div>
+            )}
 
           </div>
 
