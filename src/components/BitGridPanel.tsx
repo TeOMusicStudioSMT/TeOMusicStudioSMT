@@ -81,7 +81,14 @@ function zTekstu(tekst: string, kroki: number): { matryca: Matryca; nieznane: st
   return { matryca, nieznane };
 }
 
-export const BitGridPanel: React.FC<{ onClose?: () => void }> = () => {
+/**
+ * `start` — matryca z Workflow Joanny (2026-09-12). Panel przyjmuje ją RAZ na
+ * zmianę referencji i od tej pory siatka należy do Suwerena; kolejny workflow
+ * = nowy obiekt = nowe wypełnienie. Bez tego pop-up „przenosił, ale nie tworzył".
+ */
+export interface StartBitu { bpm: number; matryca: Matryca; dspFreq?: number; kroki?: number; etykieta?: string }
+
+export const BitGridPanel: React.FC<{ onClose?: () => void; start?: StartBitu | null }> = ({ start }) => {
   const [kroki, setKroki] = useState<number>(16);
   const [matryca, setMatryca] = useState<Matryca>(() => pustaMatryca(16));
   const [bpm, setBpm] = useState<number>(120);
@@ -112,6 +119,26 @@ export const BitGridPanel: React.FC<{ onClose?: () => void }> = () => {
       }
     })();
   }, []);
+
+  // Wypełnienie z Workflow Joanny — tylko gdy przyjdzie nowy obiekt.
+  // Ref, bo StrictMode w dev odpala efekt dwa razy i toast też leciał dwa razy.
+  const ostatniStart = useRef<StartBitu | null>(null);
+  useEffect(() => {
+    if (!start?.matryca || ostatniStart.current === start) return;
+    ostatniStart.current = start;
+    const n = start.kroki ?? start.matryca.kick?.length ?? 16;
+    setKroki(n);
+    setMatryca({
+      kick: [...(start.matryca.kick ?? new Array(n).fill(0))],
+      snare: [...(start.matryca.snare ?? new Array(n).fill(0))],
+      hihat: [...(start.matryca.hihat ?? new Array(n).fill(0))],
+      synth: [...(start.matryca.synth ?? new Array(n).fill(0))],
+    });
+    setBpm(Math.max(40, Math.min(240, Math.round(start.bpm || 120))));
+    if (start.dspFreq) setDspFreq(start.dspFreq);
+    setWynik(null);
+    toast.success(`Joanna ułożyła bit: ${start.etykieta ?? `${start.bpm} bpm`}`);
+  }, [start]);
 
   // Zmiana liczby kroków zachowuje to, co już ułożone (zapętla krótsze).
   const zmienKroki = (nowe: number) => {

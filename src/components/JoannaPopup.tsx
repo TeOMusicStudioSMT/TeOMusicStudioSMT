@@ -12,7 +12,10 @@
  * żyje: pop-up mówi, że nie ma połączenia, i nie pokazuje wymyślonej formy.
  *
  * ⚠️ KAŻDA POZYCJA PANELU PROWADZI DO CZEGOŚ, CO ISTNIEJE:
- *   · Song    → moduł AI Session (MiniMax-Music-3 / ACE przez ComfyUI)
+ *   · Song    → WORKFLOW JOANNY (spec Jasona v3.0, 2026-09-12): rytm z biblioteki
+ *               → styl z szablonu → lyrics EN → brief 1280×704 dla Klatki; Orby 432
+ *               przy liczeniu; wynik wpisany do AI Session (styl, prompt, lyrics)
+ *               i do Panelu Bitów (matryca, BPM, DSP 432)
  *   · Bit     → Panel Bitów
  *   · Cinema  → Joanna komponuje pod długość filmu: POST /api/montazownia/skomponuj
  *               (ta sama trasa, którą używa Montażownia w Story)
@@ -29,6 +32,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { Music, Grid3X3, Clapperboard, Mic2, Scissors, MessageCircle, X, Moon, Loader2, WifiOff } from 'lucide-react';
+import { uruchomWorkflow, zlecKlatce, type WynikWorkflow, type KrokId } from '../workflow/joannaWorkflow';
+import { Orby432 } from './Orby432';
 
 const MOST = 'http://127.0.0.1:3001';
 const PIERWSZY_PO_MS = 25_000;
@@ -55,6 +60,10 @@ export type ModulMuzyki = 'ai' | 'bity' | 'rzezba' | 'radio' | 'engine';
 interface Props {
     /** Przełącza moduł w App — pop-up nie ma własnej nawigacji. */
     onModul: (m: ModulMuzyki) => void;
+    /** Wynik Workflow Joanny (Jason v3.0) — App wpisuje go do AI Session i Panelu Bitów. */
+    onWorkflow?: (w: WynikWorkflow) => void;
+    /** Ostatni wynik, żeby po ponownym otwarciu panelu nie liczyć od zera. */
+    ostatniWorkflow?: WynikWorkflow | null;
 }
 
 /** 1 utwór · 2–4 utwory · 5+ utworów — Joanna mówi po polsku, więc odmienia. */
@@ -72,7 +81,7 @@ async function zMostu<T>(sciezka: string, init?: RequestInit): Promise<T> {
     return d as T;
 }
 
-export const JoannaPopup: React.FC<Props> = ({ onModul }) => {
+export const JoannaPopup: React.FC<Props> = ({ onModul, onWorkflow, ostatniWorkflow }) => {
     const [joanna, setJoanna] = useState<StanJoanny | null>(null);
     const [mostZyje, setMostZyje] = useState<boolean | null>(null);
     const [utwory, setUtwory] = useState<Utwor[]>([]);
@@ -198,6 +207,8 @@ export const JoannaPopup: React.FC<Props> = ({ onModul }) => {
                         utwory={utwory}
                         kolor={kolor}
                         onModul={(m) => { setPanel(false); onModul(m); }}
+                        onWorkflow={onWorkflow}
+                        ostatniWorkflow={ostatniWorkflow}
                         onZamknij={() => setPanel(false)}
                         onDrzemka={drzemka}
                     />
@@ -211,12 +222,13 @@ export const JoannaPopup: React.FC<Props> = ({ onModul }) => {
 // PANEL: song / bit / cinema / głosy / rzeźba / rozmowa
 // ─────────────────────────────────────────────────────────────────────────────
 
-type Karta = 'menu' | 'cinema' | 'glosy' | 'rozmowa';
+type Karta = 'menu' | 'song' | 'cinema' | 'glosy' | 'rozmowa';
 
 const PanelJoanny: React.FC<{
     joanna: StanJoanny | null; mostZyje: boolean | null; utwory: Utwor[]; kolor: string;
-    onModul: (m: ModulMuzyki) => void; onZamknij: () => void; onDrzemka: () => void;
-}> = ({ joanna, mostZyje, utwory, kolor, onModul, onZamknij, onDrzemka }) => {
+    onModul: (m: ModulMuzyki) => void; onWorkflow?: (w: WynikWorkflow) => void; ostatniWorkflow?: WynikWorkflow | null;
+    onZamknij: () => void; onDrzemka: () => void;
+}> = ({ joanna, mostZyje, utwory, kolor, onModul, onWorkflow, ostatniWorkflow, onZamknij, onDrzemka }) => {
     const [karta, setKarta] = useState<Karta>('menu');
 
     useEffect(() => {
@@ -226,7 +238,7 @@ const PanelJoanny: React.FC<{
     }, [onZamknij]);
 
     const pozycje: { id: Karta | ModulMuzyki; nazwa: string; opis: string; Ikona: React.ElementType; modul?: ModulMuzyki }[] = [
-        { id: 'ai',      nazwa: 'Song',    opis: 'AI Session — utwór z opisu',          Ikona: Music,        modul: 'ai' },
+        { id: 'song',    nazwa: 'Song',    opis: 'Joanna układa rytm, styl, tekst, brief', Ikona: Music },
         { id: 'bity',    nazwa: 'Bit',     opis: 'Panel Bitów — rytm z siatki',         Ikona: Grid3X3,      modul: 'bity' },
         { id: 'cinema',  nazwa: 'Cinema',  opis: 'Muzyka pod długość filmu z Katedry',  Ikona: Clapperboard },
         { id: 'glosy',   nazwa: 'Głosy',   opis: 'Piper, VoiceStudio — co dziś mówi',   Ikona: Mic2 },
@@ -291,6 +303,7 @@ const PanelJoanny: React.FC<{
                     </div>
                 )}
 
+                {karta === 'song' && <Song kolor={kolor} wroc={() => setKarta('menu')} onModul={onModul} onWorkflow={onWorkflow} ostatni={ostatniWorkflow} />}
                 {karta === 'cinema' && <Cinema kolor={kolor} wroc={() => setKarta('menu')} />}
                 {karta === 'glosy' && <Glosy kolor={kolor} wroc={() => setKarta('menu')} />}
                 {karta === 'rozmowa' && <Rozmowa kolor={kolor} wroc={() => setKarta('menu')} />}
@@ -303,6 +316,132 @@ const Wroc: React.FC<{ wroc: () => void; tytul: string }> = ({ wroc, tytul }) =>
     <div className="mb-3 flex items-center gap-2">
         <button onClick={wroc} className="text-[11px] font-mono text-slate-500 hover:text-slate-200">← menu</button>
         <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">{tytul}</span>
+    </div>
+);
+
+// ── SONG: Workflow Joanny (Jason v3.0) — rytm → styl → lyrics → brief dla Klatki ──
+// Tu pop-up przestaje „przenosić" i zaczyna „tworzyć": cztery kroki liczą się
+// przy Orbach 432, a wynik ląduje w formularzu AI Session i w matrycy Bitów.
+const KROK_DO_ORBU: Record<KrokId, string> = { rytm: 'cyan', styl: 'cyan', lyrics: 'magenta', brief: 'amber' };
+
+const Song: React.FC<{ kolor: string; wroc: () => void; onModul: (m: ModulMuzyki) => void; onWorkflow?: (w: WynikWorkflow) => void; ostatni?: WynikWorkflow | null }> = ({ kolor, wroc, onModul, onWorkflow, ostatni }) => {
+    const [intencja, setIntencja] = useState('');
+    const [liczy, setLiczy] = useState(false);
+    const [aktywny, setAktywny] = useState<string | null>(null);
+    const [gotowe, setGotowe] = useState<string[]>([]);
+    const [log, setLog] = useState<string[]>([]);
+    const [wynik, setWynik] = useState<WynikWorkflow | null>(ostatni ?? null);
+    const [blad, setBlad] = useState('');
+    const [klatka, setKlatka] = useState<{ stan: 'nic' | 'zleca' | 'zlecone' | 'blad'; info?: string }>({ stan: 'nic' });
+
+    const tworz = async () => {
+        setLiczy(true); setBlad(''); setLog([]); setGotowe([]); setWynik(null); setKlatka({ stan: 'nic' });
+        try {
+            const w = await uruchomWorkflow({
+                intencja: intencja.trim(),
+                model: localStorage.getItem('otakos_active_model') || undefined,
+                postep: (krok, stan, info) => {
+                    const orb = KROK_DO_ORBU[krok];
+                    if (stan === 'start') setAktywny(orb);
+                    if (stan === 'ok') { setGotowe((g) => (g.includes(orb) && krok !== 'styl' ? g : [...g, orb])); setLog((l) => [...l, `${krok}: ${info ?? 'ok'}`]); }
+                    if (stan === 'blad') setLog((l) => [...l, `${krok}: ✗ ${info ?? ''}`]);
+                },
+            });
+            setWynik(w);
+            onWorkflow?.(w);
+            toast.success(`Joanna ułożyła utwór w ${w.sekundy} s — styl i tekst czekają w Song, bit w Panelu Bitów.`);
+        } catch (e) {
+            setBlad(e instanceof Error ? e.message : String(e));
+        } finally { setLiczy(false); setAktywny(null); }
+    };
+
+    const zlec = async () => {
+        if (!wynik) return;
+        setKlatka({ stan: 'zleca' });
+        try {
+            const z = await zlecKlatce(wynik.brief);
+            setKlatka({ stan: 'zlecone', info: `zlecenie ${z.zlecenie} · ${z.silnik}` });
+        } catch (e) {
+            setKlatka({ stan: 'blad', info: e instanceof Error ? e.message : String(e) });
+        }
+    };
+
+    return (
+        <div>
+            <Wroc wroc={wroc} tytul="Song — workflow Joanny" />
+
+            {!liczy && !wynik && (
+                <div className="space-y-2">
+                    <div className="text-[11px] text-slate-400">
+                        Cztery kroki: rytm z biblioteki (BPM 70–140, DSP 432 Hz) → opis stylu z szablonu → tekst EN [Intro][Verse 1][Chorus][Outro] → brief okładki 1280×704 dla Klatki. Bez intencji Joanna wybiera nastrój sama.
+                    </div>
+                    <input value={intencja} onChange={(e) => setIntencja(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void tworz(); }} placeholder="intencja (opcjonalnie): np. noc w katedrze, powolny puls, bez perkusji" className="w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-xs text-slate-200 outline-none" />
+                    <div className="flex items-center gap-2">
+                        <button onClick={() => void tworz()} className="rounded-lg px-4 py-1.5 text-xs font-bold text-black" style={{ backgroundColor: kolor }}>TWÓRZ</button>
+                        <span className="text-[10px] font-mono text-slate-600">3 wywołania modelu · ok. 20–90 s · render okładki osobno</span>
+                    </div>
+                </div>
+            )}
+
+            {liczy && (
+                <div className="space-y-3 py-2">
+                    <Orby432 aktywny={aktywny} gotowe={gotowe} />
+                    <div className="text-center text-[10px] font-mono text-slate-500">puls 432 Hz ÷ 2⁸ = 1,69 Hz · orb aktywny = krok, który właśnie liczy</div>
+                    <ul className="space-y-0.5 text-[10px] font-mono text-slate-400">
+                        {log.map((l, i) => <li key={i}>✓ {l}</li>)}
+                    </ul>
+                </div>
+            )}
+
+            {blad && <div className="mt-2 rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-200">Workflow padł: {blad}</div>}
+
+            {wynik && !liczy && (
+                <div className="space-y-2 text-xs">
+                    <Orby432 aktywny={null} gotowe={['cyan', 'magenta', 'amber']} size={20} />
+                    <div className="rounded-xl border border-white/10 bg-black/40 p-3">
+                        <div className="font-bold text-white">{wynik.gatunek} <span className="font-normal text-slate-400">· {wynik.nastroj}</span></div>
+                        <div className="mt-1 text-[11px] text-slate-300">{wynik.styl.tekst}</div>
+                        <div className="mt-0.5 text-[10px] font-mono text-slate-600">styl: {wynik.styl.silnik} · rytm: {wynik.rytm.silnik}</div>
+                        <div className="mt-2 font-mono text-[11px]" style={{ color: kolor }}>{wynik.rytm.nazwaWzoru} · {wynik.rytm.bpm} bpm · 16 kroków · DSP {wynik.rytm.dspFreq} Hz</div>
+                        <Siatka16 matryca={wynik.rytm.matryca} kolor={kolor} />
+                    </div>
+                    <details className="rounded-xl border border-white/10 bg-black/40 p-3">
+                        <summary className="cursor-pointer text-[11px] text-slate-300">Lyrics EN <span className="font-mono text-slate-600">· {wynik.lyrics.silnik}</span></summary>
+                        <pre className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-[11px] text-slate-400">{wynik.lyrics.tekst}</pre>
+                    </details>
+                    <div className="rounded-xl border border-white/10 bg-black/40 p-3">
+                        <div className="text-[11px] text-slate-300">Brief dla Klatki <span className="font-mono text-slate-600">· {wynik.brief.aspekt} · {wynik.brief.styl} · {wynik.brief.silnik}</span></div>
+                        <div className="mt-1 text-[11px] italic text-slate-400">{wynik.brief.prompt}</div>
+                        <div className="mt-2 flex items-center gap-2">
+                            <button onClick={() => void zlec()} disabled={klatka.stan === 'zleca' || klatka.stan === 'zlecone'} className="rounded-lg border px-3 py-1 text-[11px] text-amber-200 disabled:opacity-40" style={{ borderColor: '#f59e0b66' }}>
+                                {klatka.stan === 'zleca' ? 'zlecam…' : klatka.stan === 'zlecone' ? 'zlecone Klatce' : 'Zleć okładkę Klatce (GPU)'}
+                            </button>
+                            {klatka.info && <span className={`text-[10px] font-mono ${klatka.stan === 'blad' ? 'text-red-300' : 'text-slate-500'}`}>{klatka.info}</span>}
+                        </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                        <button onClick={() => onModul('ai')} className="rounded-lg px-3 py-1.5 text-[11px] font-bold text-black" style={{ backgroundColor: kolor }}>Otwórz Song — styl i tekst wpisane</button>
+                        <button onClick={() => onModul('bity')} className="rounded-lg border border-white/15 px-3 py-1.5 text-[11px] text-slate-200">Otwórz Bit — matryca ułożona</button>
+                        <button onClick={() => { setWynik(null); setIntencja(''); }} className="rounded-lg px-3 py-1.5 text-[11px] text-slate-500 hover:text-slate-200">od nowa</button>
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-600">model: {wynik.model} · {wynik.sekundy} s · „432Hz harmonic alignment" w stylu to słowa dla modelu muzycznego; prawdziwe 432 Hz jest w DSP Bitów</div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+/** Podgląd 16-krokowej siatki — cztery ścieżki, kropka = uderzenie. */
+const Siatka16: React.FC<{ matryca: Record<string, number[]>; kolor: string }> = ({ matryca, kolor }) => (
+    <div className="mt-2 space-y-0.5">
+        {(['kick', 'snare', 'hihat', 'synth'] as const).map((s) => (
+            <div key={s} className="flex items-center gap-1">
+                <span className="w-9 text-[9px] font-mono uppercase text-slate-600">{s}</span>
+                {(matryca[s] ?? []).map((v, i) => (
+                    <span key={i} className="h-2 w-2 rounded-sm" style={{ backgroundColor: v ? kolor : '#ffffff14', opacity: i % 4 === 0 ? 1 : 0.8 }} />
+                ))}
+            </div>
+        ))}
     </div>
 );
 

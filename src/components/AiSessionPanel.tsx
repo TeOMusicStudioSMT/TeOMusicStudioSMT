@@ -28,6 +28,8 @@ interface AiSessionPanelProps {
     intensity: number;
     confidence: number;
     generationId: string;
+    /** Workflow Joanny (2026-09-12): tekst EN [Intro][Verse 1][Chorus][Outro] — wpisywany do zakładki „lyrics". */
+    lyrics?: string;
   } | null;
   onClose?: () => void;
 }
@@ -147,6 +149,7 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
     if (teleportParams) {
       if (teleportParams.prompt) setPrompt(teleportParams.prompt);
       if (teleportParams.style) setStyle(teleportParams.style);
+      if (teleportParams.lyrics) setLyrics(teleportParams.lyrics);
       if (teleportParams.intensity) {
         setCfgScale(Math.min(15, Math.max(2, parseFloat((7.0 * teleportParams.intensity).toFixed(1)))));
       }

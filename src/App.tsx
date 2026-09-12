@@ -12,6 +12,8 @@ import AiSessionPanel from './components/AiSessionPanel';
 import BitGridPanel from './components/BitGridPanel';
 import RzezbaPanel from './components/RzezbaPanel';
 import { JoannaPopup } from './components/JoannaPopup';
+import type { StartBitu } from './components/BitGridPanel';
+import type { WynikWorkflow } from './workflow/joannaWorkflow';
 
 interface TeleportParams {
   style: string;
@@ -21,6 +23,7 @@ interface TeleportParams {
   intensity: number;
   confidence: number;
   generationId: string;
+  lyrics?: string;
 }
 
 function getInitialTeleport(): { params: TeleportParams | null; active: string | null } {
@@ -65,7 +68,26 @@ function App() {
   // 'engine' | 'radio' | 'ai' | null
   const [activeModule, setActiveModule] = useState<string | null>(initialData.active);
   // Stany AACL Teleportacji
-  const [teleportParams] = useState<TeleportParams | null>(initialData.params);
+  const [teleportParams, setTeleportParams] = useState<TeleportParams | null>(initialData.params);
+  // 🕊️ Wynik Workflow Joanny (Jason v3.0): styl+lyrics do AI Session, matryca do Bitów.
+  // Oba trzymane w App, bo pop-up żyje POZA modułami, a moduły montują się od nowa.
+  const [startBitu, setStartBitu] = useState<StartBitu | null>(null);
+  const [ostatniWorkflow, setOstatniWorkflow] = useState<WynikWorkflow | null>(null);
+
+  const przyjmijWorkflow = (w: WynikWorkflow) => {
+    setOstatniWorkflow(w);
+    setTeleportParams({
+      style: w.styl.tekst,
+      prompt: `${w.gatunek} — ${w.nastroj}. Lead: ${w.instrument}. ${w.rytm.bpm} bpm, ${w.rytm.nazwaWzoru} groove.`,
+      tags: [w.gatunek, w.instrument, '432hz', 'joanna-workflow'],
+      model: w.model,
+      intensity: 1,
+      confidence: 1,
+      generationId: `joanna-${Date.now()}`,
+      lyrics: w.lyrics.tekst,
+    });
+    setStartBitu({ bpm: w.rytm.bpm, matryca: w.rytm.matryca as StartBitu['matryca'], dspFreq: w.rytm.dspFreq, kroki: w.rytm.kroki, etykieta: `${w.rytm.nazwaWzoru} · ${w.rytm.bpm} bpm` });
+  };
 
   // Oczyść pasek URL bez odświeżania strony po zainicjalizowaniu
   useEffect(() => {
@@ -183,7 +205,7 @@ function App() {
             {activeModule === 'engine' && <BioResonanceEngine />}
 
             {/* 🥁 PANEL BITÓW — sekwencer krokowy */}
-            {activeModule === 'bity' && <BitGridPanel />}
+            {activeModule === 'bity' && <BitGridPanel start={startBitu} />}
 
             {/* ✂️ RZEŹBA AUDIO — cięcie, pętle, pasma, stemy */}
             {activeModule === 'rzezba' && <RzezbaPanel />}
@@ -213,7 +235,7 @@ function App() {
       {/* 🕊️ V3: Joanna — TeOgochi od muzyki wyglądająca zza krawędzi ekranu.
           Stan i ikona z mostu (/api/teogochi/stado); panel prowadzi do modułów tej apki
           oraz do tras, które istnieją (Cinema → /api/montazownia/skomponuj). */}
-      <JoannaPopup onModul={(m) => setActiveModule(m)} />
+      <JoannaPopup onModul={(m) => setActiveModule(m)} onWorkflow={przyjmijWorkflow} ostatniWorkflow={ostatniWorkflow} />
     </div>
   );
 }
