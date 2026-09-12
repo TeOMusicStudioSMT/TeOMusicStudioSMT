@@ -32,6 +32,8 @@ interface AiSessionPanelProps {
     lyrics?: string;
   } | null;
   onClose?: () => void;
+  /** 🔧 Do Warsztatu z tym utworem (przedłuż / remiks / cover). */
+  onDoWarsztatu?: (w: { plik: string; tags: string; lyrics: string }) => void;
 }
 
 const PRESET_VIBES = [
@@ -81,7 +83,8 @@ const KEYS = [
 
 export const AiSessionPanel: React.FC<AiSessionPanelProps> = ({
   teleportParams,
-  onClose
+  onClose,
+  onDoWarsztatu,
 }) => {
   // --- Stan Formularza ---
   const [prompt, setPrompt] = useState(teleportParams?.prompt || 'Ethereal ambient soundscape with warm analog synthesizers and floating spatial echoes');
@@ -1209,6 +1212,17 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
                 >
                   {isStagingTeledysk ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>🎬 Katedra Teledysk</span>}
                 </button>
+
+                {onDoWarsztatu && (
+                  <button
+                    onClick={() => result?.savedPath && !/nieudany/.test(result.savedPath) ? onDoWarsztatu({ plik: result.savedPath, tags: style, lyrics }) : toast.error('Utwór nie jest zapisany w bibliotece — Warsztat bierze tylko pliki z dysku.')}
+                    disabled={!result}
+                    className="px-3 py-2.5 rounded-xl border border-cyan-400/50 bg-cyan-500/10 hover:bg-cyan-500/25 text-cyan-100 font-bold text-xs font-mono transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    title="Przedłuż, zremiksuj albo zrób cover tego utworu"
+                  >
+                    🔧 Przedłuż / remiks
+                  </button>
+                )}
 
                 <button
                   onClick={handleNowyTeledysk}

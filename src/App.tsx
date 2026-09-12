@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Radio, Activity, Mic2, ArrowLeft, Grid3x3, Scissors
+  Radio, Activity, Mic2, ArrowLeft, Grid3x3, Scissors, Wrench
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import BioResonanceEngine from './components/BioResonanceEngine';
@@ -11,6 +11,7 @@ import HolographicCard from './components/HolographicCard';
 import AiSessionPanel from './components/AiSessionPanel';
 import BitGridPanel from './components/BitGridPanel';
 import RzezbaPanel from './components/RzezbaPanel';
+import WarsztatPanel from './components/WarsztatPanel';
 import { JoannaPopup } from './components/JoannaPopup';
 import type { StartBitu } from './components/BitGridPanel';
 import type { WynikWorkflow } from './workflow/joannaWorkflow';
@@ -73,6 +74,8 @@ function App() {
   // Oba trzymane w App, bo pop-up żyje POZA modułami, a moduły montują się od nowa.
   const [startBitu, setStartBitu] = useState<StartBitu | null>(null);
   const [ostatniWorkflow, setOstatniWorkflow] = useState<WynikWorkflow | null>(null);
+  // 🔧 Wejście do Warsztatu z AI Session: ostatnio wygenerowany utwór + jego tagi.
+  const [warsztatStart, setWarsztatStart] = useState<{ plik: string; tags: string; lyrics: string } | null>(null);
 
   const przyjmijWorkflow = (w: WynikWorkflow) => {
     setOstatniWorkflow(w);
@@ -167,6 +170,14 @@ function App() {
               />
 
               <HolographicCard
+                title="Warsztat utworów"
+                description="Przedłuż, zremiksuj, zrób cover istniejącego utworu (ACE-Step 1.5)."
+                icon={Wrench}
+                color="#22d3ee"
+                onClick={() => setActiveModule('warsztat')}
+              />
+
+              <HolographicCard
                 title="Graviton Radio"
                 description="Tune into the frequencies of the network."
                 icon={Radio}
@@ -210,6 +221,9 @@ function App() {
             {/* ✂️ RZEŹBA AUDIO — cięcie, pętle, pasma, stemy */}
             {activeModule === 'rzezba' && <RzezbaPanel />}
 
+            {/* 🔧 WARSZTAT — przedłuż / remiks / cover; z AI Session wchodzi z ostatnim utworem i jego tagami */}
+            {activeModule === 'warsztat' && <WarsztatPanel startPlik={warsztatStart?.plik} startTags={warsztatStart?.tags} startLyrics={warsztatStart?.lyrics} />}
+
             {/* 📻 GRAVITON RADIO — strumień z lokalnej biblioteki Katedry */}
             {activeModule === 'radio' && <GravitonRadio />}
 
@@ -218,6 +232,7 @@ function App() {
               <AiSessionPanel
                 teleportParams={teleportParams}
                 onClose={() => setActiveModule(null)}
+                onDoWarsztatu={(w) => { setWarsztatStart(w); setActiveModule('warsztat'); }}
               />
             )}
 
