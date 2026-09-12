@@ -153,7 +153,7 @@ const GravitonRadio: React.FC = () => {
    * Gdy przeglądarka nie ma polskiego głosu — i tak mówi (domyślnym), bo cisza
    * byłaby gorsza; tekst widać też na ekranie.
    */
-  const powiedz = useCallback((tekst: string) => new Promise<void>((resolve) => {
+  const powiedzPrzegladarka = useCallback((tekst: string) => new Promise<void>((resolve) => {
     if (typeof window === 'undefined' || !window.speechSynthesis) { resolve(); return; }
     try {
       window.speechSynthesis.cancel();
@@ -171,6 +171,42 @@ const GravitonRadio: React.FC = () => {
       setTimeout(resolve, 15000);
     } catch { resolve(); }
   }), []);
+
+  /**
+   * 🇵🇱 GŁOS JOANNY — Piper z mostu, przeglądarka jako zapasowy tor.
+   *
+   * Do tej pory Joanna mówiła `speechSynthesis`, czyli głosem SYSTEMU — u każdego
+   * innym, a bez zainstalowanego polskiego pakietu po prostu obcym akcentem.
+   * Teraz idzie przez /api/voice/speak przewodem `piper-pl`: polski głos liczony
+   * na dysku Suwerena, bez chmury i bez kluczy.
+   *
+   * Gdy most śpi albo wagi Pipera nie leżą na dysku — wracamy do przeglądarki.
+   * Cisza byłaby gorsza niż gorszy głos.
+   */
+  const powiedz = useCallback(async (tekst: string) => {
+    try {
+      const r = await fetch(`${BRIDGE}/api/voice/speak`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ przewod: 'piper-pl', text: tekst }),
+      });
+      if (!r.ok) throw new Error('most odmówił');
+      const blob = await r.blob();
+      if (blob.size < 1000) throw new Error('pusty dźwięk');
+      const url = URL.createObjectURL(blob);
+      await new Promise<void>((resolve) => {
+        const a = new Audio(url);
+        a.onended = () => resolve();
+        a.onerror = () => resolve();
+        // Bezpiecznik: zapowiedź nie może zablokować radia na zawsze.
+        setTimeout(resolve, 30000);
+        a.play().catch(() => resolve());
+      });
+      URL.revokeObjectURL(url);
+    } catch {
+      await powiedzPrzegladarka(tekst);
+    }
+  }, [powiedzPrzegladarka]);
 
   /** Pobiera zapowiedź z mostu i wypowiada ją. Cicho pomija, gdy most milczy. */
   const zapowiedzUtwor = useCallback(async (tytul: string) => {
