@@ -24,6 +24,7 @@ import {
 const FAMILY_LABELS: Record<ModelFamily, string> = {
   ace: 'ACE-Step 1.5 — lekki, 8 kroków',
   minimax: 'MiniMax-Music-3 — ciężki, faza autoregresywna',
+  yue2: 'YuE2 3B — piosenki z wokalem, jeden checkpoint (wymaga nowszego ComfyUI)',
 };
 
 const BRIDGE_URL = 'http://127.0.0.1:3001';
@@ -58,6 +59,7 @@ interface KatalogStatus {
   brakujaceRole: ModelRole[];
   bajtyNaDysku: number;
   aktywnePobierania: number;
+  rodziny?: Partial<Record<ModelFamily, { gotowy: boolean; brakujaceRole: ModelRole[] }>>;
 }
 
 interface SilnikStatus {
@@ -79,6 +81,32 @@ export const ModelCatalogPanel: React.FC<Props> = ({ onReadyChange }) => {
   const [silnik, setSilnik] = useState<SilnikStatus | null>(null);
   const [mostOffline, setMostOffline] = useState(false);
   const [odswieza, setOdswieza] = useState(false);
+  // Rodzina, którą Joanna bierze do MUZYKI FILMOWEJ (Montażownia „Skomponuj").
+  // Suweren (2026-09-15): „czy Joanna ma na sztywno wpisany model?" — miała ('ace').
+  // Teraz most czyta to z ustawień; tu jest pokrętło.
+  const [rodzinaFilmowa, setRodzinaFilmowa] = useState<ModelFamily | null>(null);
+  const [rodzinyMostu, setRodzinyMostu] = useState<Record<string, { etykieta: string; uwaga?: string }>>({});
+
+  const pobierzUstawienia = useCallback(async () => {
+    try {
+      const r = await fetch(`${BRIDGE_URL}/api/music/ustawienia`);
+      if (!r.ok) return;
+      const d = await r.json();
+      setRodzinaFilmowa(d.rodzinaFilmowa ?? 'ace');
+      setRodzinyMostu(d.rodziny ?? {});
+    } catch { /* most offline — status wyżej to pokaże */ }
+  }, []);
+  useEffect(() => { void pobierzUstawienia(); }, [pobierzUstawienia]);
+
+  const ustawRodzineFilmowa = async (rodzina: ModelFamily) => {
+    setRodzinaFilmowa(rodzina);
+    try {
+      await fetch(`${BRIDGE_URL}/api/music/ustawienia`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rodzinaFilmowa: rodzina }),
+      });
+    } catch { /* jw. */ }
+  };
 
   const pobierzStatus = useCallback(async () => {
     try {
@@ -186,7 +214,7 @@ export const ModelCatalogPanel: React.FC<Props> = ({ onReadyChange }) => {
     katalog.pliki.filter((p) => family(p) === rodzina && p.role === rola);
 
   /** Rodziny w kolejności: najpierw ta, która realnie chodzi na tym sprzęcie. */
-  const RODZINY: ModelFamily[] = ['ace', 'minimax'];
+  const RODZINY: ModelFamily[] = ['ace', 'yue2', 'minimax'];
 
   return (
     <div className="bg-black/40 border border-purple-500/20 rounded-2xl p-4 space-y-4">
@@ -203,7 +231,7 @@ export const ModelCatalogPanel: React.FC<Props> = ({ onReadyChange }) => {
           </p>
           <p className="text-[10px] text-slate-600 font-mono">
             Na dysku: <span className="text-slate-400">{humanBytes(katalog.bajtyNaDysku)}</span>
-            {' • '}rodziny: <span className="text-slate-400">ACE-Step 1.5 + MiniMax-Music-3</span>
+            {' • '}rodziny: <span className="text-slate-400">ACE-Step 1.5 + YuE2 + MiniMax-Music-3</span>
           </p>
         </div>
         <button
@@ -237,6 +265,35 @@ export const ModelCatalogPanel: React.FC<Props> = ({ onReadyChange }) => {
           </p>
         )}
       </div>
+
+      {/* RODZINA DO MUZYKI FILMOWEJ (Joanna / Montażownia) */}
+      {rodzinaFilmowa && (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">
+              Muzyka filmowa Joanny — rodzina silnika
+            </span>
+            <select
+              value={rodzinaFilmowa}
+              onChange={(e) => void ustawRodzineFilmowa(e.target.value as ModelFamily)}
+              className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[11px] font-mono text-white"
+            >
+              {RODZINY.map((r) => {
+                const gotowa = katalog.rodziny?.[r]?.gotowy;
+                return (
+                  <option key={r} value={r}>
+                    {rodzinyMostu[r]?.etykieta ?? FAMILY_LABELS[r]}{gotowa === false ? ' — brak wag' : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <p className="text-[10px] text-slate-400 leading-relaxed">
+            Tego silnika użyje „Skomponuj" w Montażowni Katedry (dotąd na sztywno ACE-Step).
+            {rodzinyMostu[rodzinaFilmowa]?.uwaga ? ` ${rodzinyMostu[rodzinaFilmowa].uwaga}` : ''}
+          </p>
+        </div>
+      )}
 
       {/* ZESTAWY DO KLIKNIĘCIA */}
       <div className="space-y-2">
@@ -299,11 +356,13 @@ export const ModelCatalogPanel: React.FC<Props> = ({ onReadyChange }) => {
             <div className={`text-[11px] font-mono font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-lg border ${
               rodzina === 'ace'
                 ? 'text-emerald-300 bg-emerald-950/30 border-emerald-500/30'
-                : 'text-amber-300/90 bg-amber-950/20 border-amber-500/25'
+                : rodzina === 'yue2'
+                  ? 'text-orange-300/90 bg-orange-950/20 border-orange-500/25'
+                  : 'text-amber-300/90 bg-amber-950/20 border-amber-500/25'
             }`}>
               {FAMILY_LABELS[rodzina]}
             </div>
-        {(['diffusion_models', 'text_encoders', 'vae'] as ModelRole[]).map((rola) => (
+        {((rodzina === 'yue2' ? ['checkpoints', 'audio_encoders'] : ['diffusion_models', 'text_encoders', 'vae']) as ModelRole[]).map((rola) => (
           <div key={rola} className="space-y-1.5 pl-1">
             <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">
               {ROLE_LABELS[rola]}

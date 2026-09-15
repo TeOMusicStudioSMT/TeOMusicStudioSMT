@@ -14,13 +14,13 @@
 export type MiniMaxModelVariant = 'int8' | 'fp16' | 'fp32';
 /** Warianty rdzenia ACE-Step 1.5. `turbo` = 8 kroków, `base` = pełny harmonogram. */
 export type AceModelVariant = 'turbo' | 'base';
-export type MusicEngine = 'ace-step' | 'minimax-dit' | 'suno-udio-bridge' | 'synth-432';
+export type MusicEngine = 'ace-step' | 'yue2' | 'minimax-dit' | 'suno-udio-bridge' | 'synth-432';
 /** Rodzina wag. Wagi jednej rodziny NIE łączą się z wagami drugiej. */
-export type MusicFamily = 'ace' | 'minimax';
+export type MusicFamily = 'ace' | 'minimax' | 'yue2';
 
 /** Silnik wybrany w panelu → rodzina wag po stronie mostu. */
 export function rodzinaDlaSilnika(engine: MusicEngine): MusicFamily {
-  return engine === 'ace-step' ? 'ace' : 'minimax';
+  return engine === 'ace-step' ? 'ace' : engine === 'yue2' ? 'yue2' : 'minimax';
 }
 
 export interface MusicGenerationRequest {
@@ -104,6 +104,12 @@ export const ACE_WARIANT: Record<AceModelVariant, {
     krokiMin: 20, krokiMax: 90, cfgMin: 2, cfgMax: 10,
   },
 };
+
+/**
+ * Nastawy YuE2 z oficjalnego szablonu Comfy-Org (audio_yue2_text2music):
+ * KSampler 32 kroków, cfg 1.0. Jeden wariant (int8), więc bez mapy wariantów.
+ */
+export const YUE2_NASTAWY = { steps: 32, cfg: 1, krokiMin: 16, krokiMax: 64, cfgMin: 1, cfgMax: 3 };
 
 /**
  * Domyślne i zakresy dla MiniMaxa. CFG 1.7 z oficjalnego szablonu
@@ -285,7 +291,7 @@ export async function generateMiniMaxMusic(
   }
   onProgress?.({
     step: 0, totalSteps: 1, stage: 'PRZEGLAD', percentage: 0,
-    log: `🧠 Rodzina silnika: ${rodzina === 'ace' ? 'ACE-Step 1.5 turbo (8 kroków)' : 'MiniMax-Music-3 (faza autoregresywna)'}`,
+    log: `🧠 Rodzina silnika: ${rodzina === 'ace' ? 'ACE-Step 1.5 turbo (8 kroków)' : rodzina === 'yue2' ? 'YuE2 3B (LM + dyfuzja, wokal)' : 'MiniMax-Music-3 (faza autoregresywna)'}`,
   });
 
   const keyscale = keyscaleDlaAce(params.keySignature);
@@ -308,9 +314,12 @@ export async function generateMiniMaxMusic(
         rodzina,
         // ACE ma osobne wejscia na tempo i tonacje, wiec opis zostaje czystym opisem.
         // MiniMax ich nie ma — tam trzeba je wcisnac w tekst, inaczej model ich nie pozna.
+        // YuE2 bierze `style` po angielsku (jedno pole) — dajemy styl + BPM/tonację w jednym zdaniu.
         prompt: rodzina === 'ace'
           ? `${params.prompt}\n\n${params.style}`
-          : `${params.prompt}\n\nStyl: ${params.style} | BPM: ${params.bpm} | Tonacja: ${params.keySignature}`,
+          : rodzina === 'yue2'
+            ? `${params.style}, ${params.bpm} BPM, ${params.keySignature}. ${params.prompt}`
+            : `${params.prompt}\n\nStyl: ${params.style} | BPM: ${params.bpm} | Tonacja: ${params.keySignature}`,
         lyrics: params.lyrics || '',
         duration: params.durationSeconds,
         seed: params.seed,
@@ -323,6 +332,7 @@ export async function generateMiniMaxMusic(
         // a turbo/base — warianty ACE. Wysłanie id obcej rodziny most odrzuci,
         // ale lepiej go w ogóle nie wysyłać.
         ...(rodzina === 'minimax' ? { ditId: DIT_ID[params.modelVariant] } : {}),
+        ...(rodzina === 'yue2' ? { ditId: 'yue2-3b-int8' } : {}),
         ...(rodzina === 'ace' ? {
           ditId: ACE_WARIANT[params.aceVariant ?? 'turbo'].ditId,
           bpm: bpmDlaAce(params.bpm),

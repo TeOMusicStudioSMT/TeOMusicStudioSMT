@@ -13,10 +13,10 @@
  * Rozmiary w bajtach zweryfikowane przez HuggingFace API (nie zgadywane).
  */
 
-export type ModelRole = 'diffusion_models' | 'text_encoders' | 'vae';
+export type ModelRole = 'diffusion_models' | 'text_encoders' | 'vae' | 'checkpoints' | 'audio_encoders';
 export type ModelPrecision = 'int8' | 'fp16' | 'bf16' | 'fp32';
 /** Rodzina silnika. Wagi jednej rodziny NIE łączą się z wagami drugiej. */
-export type ModelFamily = 'minimax' | 'ace';
+export type ModelFamily = 'minimax' | 'ace' | 'yue2';
 
 export interface MusicModelFile {
   /** Stabilny identyfikator używany przez most i UI */
@@ -40,6 +40,7 @@ export interface MusicModelFile {
 
 export const MODEL_REPO = 'Comfy-Org/MiniMax-Music-3';
 export const MODEL_REPO_ACE = 'Comfy-Org/ace_step_1.5_ComfyUI_files';
+export const MODEL_REPO_YUE = 'Comfy-Org/YuE2';
 
 /** Skąd lecą pliki. Zmiana na mirror = jedna linia. */
 export function huggingFaceUrl(repo: string, path: string): string {
@@ -197,6 +198,43 @@ export const MUSIC_MODELS: MusicModelFile[] = [
     fitsVram6gb: true,
     family: 'ace',
   },
+  // ── YuE2 (m-a-p) — piosenki z wokalem, JEDEN checkpoint ─────────────────────
+  {
+    id: 'yue2-3b-int8',
+    path: 'checkpoints/yue2_3b_int8_convrot.safetensors',
+    role: 'checkpoints',
+    precision: 'int8',
+    bytes: 3_960_938_800,
+    repo: MODEL_REPO_YUE,
+    label: 'YuE2 3B int8 (convrot)',
+    note: 'Checkpoint niesie model, encoder tekstu i VAE. Oficjalny szablon Comfy-Org bierze domyślnie ten wariant.',
+    fitsVram6gb: true,
+    family: 'yue2',
+  },
+  {
+    id: 'yue2-3b-bf16',
+    path: 'checkpoints/yue2_3b_bf16.safetensors',
+    role: 'checkpoints',
+    precision: 'bf16',
+    bytes: 7_799_983_228,
+    repo: MODEL_REPO_YUE,
+    label: 'YuE2 3B bf16',
+    note: 'Pełna precyzja — 7,8 GB, poza 6 GB VRAM bez zrzucania do RAM.',
+    fitsVram6gb: false,
+    family: 'yue2',
+  },
+  {
+    id: 'sheetsage2',
+    path: 'audio_encoders/sheetsage2_bf16.safetensors',
+    role: 'audio_encoders',
+    precision: 'bf16',
+    bytes: 1_386_868_122,
+    repo: MODEL_REPO_YUE,
+    label: 'SheetSage2 (encoder audio)',
+    note: 'Tylko do coverów: wyciąga melodię z nagrania. Do text-to-music niepotrzebny.',
+    fitsVram6gb: true,
+    family: 'yue2',
+  },
 ];
 
 /** Rodzina modelu — brak pola znaczy 'minimax' (tak było przed dodaniem ACE). */
@@ -217,6 +255,14 @@ export interface ModelBundle {
 }
 
 export const MODEL_BUNDLES: ModelBundle[] = [
+  {
+    id: 'yue2-int8',
+    label: 'YuE2 3B int8',
+    description:
+      'Piosenki z wokalem — jeden checkpoint (model + encoder tekstu + VAE). Faza autoregresywna (LM 3B pisze tokeny muzyki), czas na tej maszynie jeszcze NIEZMIERZONY. Wymaga ComfyUI z węzłami YuE2 (nowszego niż 0.33).',
+    fileIds: ['yue2-3b-int8'],
+    recommendedFor6gb: true,
+  },
   {
     id: 'ace-turbo',
     label: 'ACE-Step Turbo',
@@ -294,4 +340,6 @@ export const ROLE_LABELS: Record<ModelRole, string> = {
   diffusion_models: 'Rdzeń DiT',
   text_encoders: 'Encoder Tekstu',
   vae: 'Dekoder Audio',
+  checkpoints: 'Checkpoint (model + encoder + VAE)',
+  audio_encoders: 'Encoder audio (covery)',
 };

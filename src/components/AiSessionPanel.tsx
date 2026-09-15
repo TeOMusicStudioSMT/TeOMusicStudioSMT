@@ -13,6 +13,7 @@ import {
   reportBreathEconomyReward,
   ACE_WARIANT,
   MINIMAX_WARIANT,
+  YUE2_NASTAWY,
   type MiniMaxModelVariant,
   type AceModelVariant,
   type MusicEngine,
@@ -53,10 +54,12 @@ const PRESET_VIBES = [
  */
 const SILNIKI: {
   id: MusicEngine; nazwa: string; znacznik: string; opis: string;
-  kolor: string; hex: string; rodzina?: 'ace' | 'minimax'; niedostepny?: boolean;
+  kolor: string; hex: string; rodzina?: 'ace' | 'minimax' | 'yue2'; niedostepny?: boolean;
 }[] = [
   { id: 'ace-step', nazwa: 'ACE-Step 1.5', znacznik: 'TURBO', hex: '#34d399', kolor: 'emerald',
     rodzina: 'ace', opis: '8 kroków. BPM i tonacja wprost do modelu, teksty po polsku.' },
+  { id: 'yue2', nazwa: 'YuE2 3B', znacznik: 'WOKAL', hex: '#f59e0b', kolor: 'amber',
+    rodzina: 'yue2', opis: 'Piosenki z wokalem z jednego checkpointa. Styl po angielsku, tekst w [Verse]/[Chorus]. Wymaga nowszego ComfyUI.' },
   { id: 'minimax-dit', nazwa: 'MiniMax-Music-3', znacznik: 'DiT', hex: '#a855f7', kolor: 'purple',
     rodzina: 'minimax', opis: 'Faza autoregresywna — na 16 GB RAM ~7h na minutę.' },
   { id: 'synth-432', nazwa: 'Syntezator 432Hz', znacznik: 'DSP', hex: '#22d3ee', kolor: 'cyan',
@@ -194,6 +197,7 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
    */
   const nastawy = React.useMemo(() => {
     if (engine === 'ace-step') return ACE_WARIANT[aceVariant];
+    if (engine === 'yue2') return YUE2_NASTAWY;
     return MINIMAX_WARIANT[modelVariant];
   }, [engine, aceVariant, modelVariant]);
 
@@ -309,7 +313,9 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
           targetFolder: '_OtakOs_Muzyka',
           title: engine === 'ace-step'
             ? `${style.slice(0, 15)} - ACE_${aceVariant.toUpperCase()}`
-            : `${style.slice(0, 15)} - MiniMax_${modelVariant.toUpperCase()}`
+            : engine === 'yue2'
+              ? `${style.slice(0, 15)} - YuE2_INT8`
+              : `${style.slice(0, 15)} - MiniMax_${modelVariant.toUpperCase()}`
         },
         (prog) => {
           setProgressPct(prog.percentage);
@@ -924,7 +930,7 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="text-[10px] text-slate-500 font-mono uppercase tracking-wider">
                     Sampler — nastawy dla: {SILNIKI.find((x) => x.id === engine)?.nazwa}
-                    {engine === 'ace-step' ? ` (${aceVariant})` : engine === 'minimax-dit' ? ` (${modelVariant})` : ''}
+                    {engine === 'ace-step' ? ` (${aceVariant})` : engine === 'minimax-dit' ? ` (${modelVariant})` : engine === 'yue2' ? ' (int8)' : ''}
                   </span>
                   {(diffusionSteps !== nastawy.steps || cfgScale !== nastawy.cfg) && (
                     <button
