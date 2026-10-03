@@ -229,15 +229,24 @@ const GhostCursor: React.FC<GhostCursorProps> = ({
         const host = containerRef.current;
         if (!host) return;
 
-        const renderer = new THREE.WebGLRenderer({
-            antialias: !isTouch,
-            alpha: true,
-            depth: false,
-            stencil: false,
-            powerPreference: isTouch ? 'low-power' : 'high-performance',
-            premultipliedAlpha: false,
-            preserveDrawingBuffer: false
-        });
+        // ⚠️ Bez WebGL (akceleracja sprzętowa wyłączona w przeglądarce, sterownik po awarii, sandbox) Three rzuca
+        // „Error creating WebGL context”. To tylko ozdobny kursor — studio ma działać dalej bez niego, a nie
+        // gasnąć na czarno (2026-10-03: niezłapany wyjątek stąd odmontowywał całe drzewo Reacta).
+        let renderer: THREE.WebGLRenderer;
+        try {
+            renderer = new THREE.WebGLRenderer({
+                antialias: !isTouch,
+                alpha: true,
+                depth: false,
+                stencil: false,
+                powerPreference: isTouch ? 'low-power' : 'high-performance',
+                premultipliedAlpha: false,
+                preserveDrawingBuffer: false
+            });
+        } catch (e) {
+            console.warn('[GhostCursor] Brak WebGL — kursor-duszek wyłączony, studio działa bez niego.', e);
+            return;
+        }
         renderer.setClearColor(0x000000, 0);
         rendererRef.current = renderer;
 
