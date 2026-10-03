@@ -7,6 +7,7 @@ import { Toaster } from 'react-hot-toast';
 import BioResonanceEngine from './components/BioResonanceEngine';
 import GravitonRadio from './components/GravitonRadio';
 import GhostCursor from './components/GhostCursor';
+import OzdobnikBezpieczny from './components/OzdobnikBezpieczny';
 import HolographicCard from './components/HolographicCard';
 import AiSessionPanel from './components/AiSessionPanel';
 import BitGridPanel from './components/BitGridPanel';
@@ -118,7 +119,9 @@ function App() {
       />
 
       {/* 👻 EFEKT DUSZKA */}
-      <GhostCursor bloomStrength={1.2} bloomRadius={0.5} color="#a855f7" zIndex={0} />
+      <OzdobnikBezpieczny nazwa="GhostCursor">
+        <GhostCursor bloomStrength={1.2} bloomRadius={0.5} color="#a855f7" zIndex={0} />
+      </OzdobnikBezpieczny>
 
       <AnimatePresence mode="wait">
         {!activeModule ? (
