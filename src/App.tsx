@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Radio, Activity, Mic2, ArrowLeft, Grid3x3, Scissors, Wrench
+  Radio, Activity, Mic2, ArrowLeft, Grid3x3, Scissors, Wrench, AudioLines
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import BioResonanceEngine from './components/BioResonanceEngine';
@@ -13,6 +13,7 @@ import AiSessionPanel from './components/AiSessionPanel';
 import BitGridPanel from './components/BitGridPanel';
 import RzezbaPanel from './components/RzezbaPanel';
 import WarsztatPanel from './components/WarsztatPanel';
+import SamplerGlosuPanel from './components/SamplerGlosuPanel';
 import { JoannaPopup } from './components/JoannaPopup';
 import type { StartBitu } from './components/BitGridPanel';
 import type { WynikWorkflow } from './workflow/joannaWorkflow';
@@ -37,7 +38,7 @@ function getInitialTeleport(): { params: TeleportParams | null; active: string |
   // Wejście wprost w moduł: /?modul=bity — pozwala Katedrze (i Joannie)
   // teleportować Suwerena od razu tam, gdzie trzeba, zamiast na landing.
   const modul = query.get('modul');
-  const ZNANE_MODULY = ['ai', 'bity', 'rzezba', 'radio', 'engine'];
+  const ZNANE_MODULY = ['ai', 'bity', 'rzezba', 'sampler', 'radio', 'engine'];
   if (modul && ZNANE_MODULY.includes(modul) && !style && !prompt) {
     return { params: null, active: modul };
   }
@@ -173,6 +174,14 @@ function App() {
               />
 
               <HolographicCard
+                title="Sampler głosu"
+                description="Fragment nagrania, filmu czy mikrofonu → głos aktora albo Joanny."
+                icon={AudioLines}
+                color="#f472b6"
+                onClick={() => setActiveModule('sampler')}
+              />
+
+              <HolographicCard
                 title="Warsztat utworów"
                 description="Przedłuż, zremiksuj, zrób cover istniejącego utworu (ACE-Step 1.5)."
                 icon={Wrench}
@@ -223,6 +232,9 @@ function App() {
 
             {/* ✂️ RZEŹBA AUDIO — cięcie, pętle, pasma, stemy */}
             {activeModule === 'rzezba' && <RzezbaPanel />}
+
+            {/* 🎚️ SAMPLER GŁOSU — próbka z nagrania/filmu/mikrofonu/utworu → głos (klon-lokalny) */}
+            {activeModule === 'sampler' && <SamplerGlosuPanel />}
 
             {/* 🔧 WARSZTAT — przedłuż / remiks / cover; z AI Session wchodzi z ostatnim utworem i jego tagami */}
             {activeModule === 'warsztat' && <WarsztatPanel startPlik={warsztatStart?.plik} startTags={warsztatStart?.tags} startLyrics={warsztatStart?.lyrics} />}
