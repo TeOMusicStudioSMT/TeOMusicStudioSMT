@@ -188,7 +188,8 @@ const GravitonRadio: React.FC = () => {
       const r = await fetch(`${BRIDGE}/api/voice/speak`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ przewod: 'piper-pl', text: tekst }),
+        // `teogochi: 'joanna'` — most podstawia barwę Joanny z Głosów Stada (Katedra), Piper zostaje domyślnym torem.
+        body: JSON.stringify({ przewod: 'piper-pl', text: tekst, teogochi: 'joanna' }),
       });
       if (!r.ok) throw new Error('most odmówił');
       const blob = await r.blob();

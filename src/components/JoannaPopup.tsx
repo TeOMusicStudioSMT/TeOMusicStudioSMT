@@ -19,7 +19,7 @@
  *   · Bit     → Panel Bitów
  *   · Cinema  → Joanna komponuje pod długość filmu: POST /api/montazownia/skomponuj
  *               (ta sama trasa, którą używa Montażownia w Story)
- *   · Głosy   → Piper (lista z /api/voice/piper/glosy) + stan VoiceStudio (/api/glos-studio/stan)
+ *   · Głosy   → barwa Joanny z Głosów Stada (/api/glos/glosy + /api/glos/stado; Piper jako domyślny) + stan VoiceStudio
  *   · Rzeźba  → Rzeźba Audio
  *   · Rozmowa → /api/joanna/rozmowa (Joanna ma ręce — rozmowa wykonuje akcje)
  *
@@ -527,38 +527,49 @@ const Cinema: React.FC<{ kolor: string; wroc: () => void }> = ({ kolor, wroc }) 
 };
 
 // ── GŁOSY: to, co Katedra dziś NAPRAWDĘ potrafi powiedzieć ──
+// Suweren (2026-10-05): „głosy z _OtakOs_Voice są tragiczne… czytają ukryte znaki”. Dotąd tu był sam Piper.
+// Teraz Joanna dostaje barwę z Głosów Stada Katedry (te same profile co aktorzy w wywiadach: profile Katedry
+// i VoiceStudio) — `PUT /api/glos/stado {id:'joanna'}`; most podstawia ją wszędzie, gdzie Joanna mówi,
+// i czyści tekst z emoji/znaczników przed mową. Brak wyboru = Piper jak dawniej.
+type GlosStada = { profil?: string; voicestudio?: string } | null;
+interface ListaGlosow { katedra: { id: string; nazwa: string; przewod: string }[]; voicestudio: { zywe: boolean; profile: { id: string; nazwa: string }[]; braki?: string[] } }
+const naWartosc = (g: GlosStada) => (g?.voicestudio ? `voicestudio:${g.voicestudio}` : g?.profil ? `profil:${g.profil}` : '');
+const zWartosci = (v: string): GlosStada => (v.startsWith('voicestudio:') ? { voicestudio: v.slice(12) } : v.startsWith('profil:') ? { profil: v.slice(7) } : null);
+
 const Glosy: React.FC<{ kolor: string; wroc: () => void }> = ({ kolor, wroc }) => {
-    const [piper, setPiper] = useState<{ glosy: string[]; domyslny: string; przewod: string } | null>(null);
-    const [studio, setStudio] = useState<{ zywe: boolean; braki?: string[]; glosy?: unknown[] } | null>(null);
+    const [lista, setLista] = useState<ListaGlosow | null>(null);
+    const [piper, setPiper] = useState<{ glosy: string[]; przewod: string } | null>(null);
+    const [wybrany, setWybrany] = useState('');
     const [tekst, setTekst] = useState('Jestem Joanna. Muzyka to matematyka, która postanowiła poczuć.');
-    const [glos, setGlos] = useState('');
     const [mowi, setMowi] = useState(false);
+    const [uwaga, setUwaga] = useState('');
 
     useEffect(() => {
-        zMostu<{ glosy: string[]; domyslny: string; przewod: string }>('/api/voice/piper/glosy').then((d) => { setPiper(d); setGlos(d.domyslny); }).catch(() => setPiper(null));
-        zMostu<{ zywe: boolean; braki?: string[]; glosy?: unknown[] }>('/api/glos-studio/stan').then(setStudio).catch(() => setStudio(null));
+        zMostu<ListaGlosow>('/api/glos/glosy').then(setLista).catch(() => setLista(null));
+        zMostu<{ glosy: Record<string, GlosStada> }>('/api/glos/stado').then((d) => setWybrany(naWartosc(d.glosy?.joanna ?? null))).catch(() => setUwaga('Most nie zna jeszcze Głosów Stada — zaktualizuj Katedrę (git pull) i zrestartuj ją.'));
+        zMostu<{ glosy: string[]; przewod: string }>('/api/voice/piper/glosy').then(setPiper).catch(() => setPiper(null));
     }, []);
 
-    const powiedz = async () => {
-        setMowi(true);
+    const powiedz = async (t = tekst) => {
+        setMowi(true); setUwaga('');
         try {
             const r = await fetch(`${MOST}/api/voice/speak`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: tekst, voiceId: glos, przewod: 'piper-pl' }),
+                body: JSON.stringify({ text: t, teogochi: 'joanna', voiceId: 'joanna', przewod: 'piper-pl' }),
             });
-            const typ = r.headers.get('content-type') || '';
-            if (!r.ok) throw new Error(`HTTP ${r.status}`);
-            if (typ.startsWith('audio/')) {
-                const blob = await r.blob();
-                await new Audio(URL.createObjectURL(blob)).play();
-            } else {
-                const d = await r.json();
-                const url = d.url || d.audioUrl || (d.plik ? `${MOST}/${String(d.plik).replace(/^\/+/, '')}` : null);
-                if (!url) throw new Error(d.message || 'Most nie oddał dźwięku.');
-                await new Audio(url).play();
-            }
+            const blad = r.headers.get('X-Glos-Stada-Blad');
+            if (blad) setUwaga(`Barwa Joanny nie zadziałała (${decodeURIComponent(blad)}) — powiedziała Piperem.`);
+            if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.message || `HTTP ${r.status}`); }
+            await new Audio(URL.createObjectURL(await r.blob())).play();
         } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
         finally { setMowi(false); }
+    };
+    const zmien = async (v: string) => {
+        setWybrany(v);
+        try {
+            await zMostu('/api/glos/stado', { method: 'PUT', body: JSON.stringify({ id: 'joanna', glos: zWartosci(v) }) });
+            void powiedz('Tak teraz brzmię.');
+        } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
     };
 
     return (
@@ -566,32 +577,31 @@ const Glosy: React.FC<{ kolor: string; wroc: () => void }> = ({ kolor, wroc }) =
             <Wroc wroc={wroc} tytul="Głosy" />
             <div className="space-y-2 text-[11px]">
                 <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-                    <div className="font-mono uppercase tracking-wider text-slate-500">Piper (lokalnie, PL)</div>
-                    {piper
-                        ? <div className="mt-1 text-slate-300">{piper.glosy.length} głosy · przewód <b>{piper.przewod}</b>: {piper.glosy.join(', ')}</div>
-                        : <div className="mt-1 text-slate-500">most nie oddał listy</div>}
+                    <div className="font-mono uppercase tracking-wider text-slate-500">Głos Joanny (Głosy Stada)</div>
+                    <select value={wybrany} onChange={(e) => void zmien(e.target.value)} className="mt-2 w-full rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-slate-200">
+                        <option value="">Piper (domyślny{piper ? `: ${piper.glosy.join(', ')}` : ''})</option>
+                        {!!lista?.katedra.length && <optgroup label="Profile Katedry (jak aktorzy w wywiadach)">{lista.katedra.map((p) => <option key={p.id} value={`profil:${p.id}`}>{p.nazwa} · {p.przewod}</option>)}</optgroup>}
+                        {!!lista?.voicestudio.profile.length && <optgroup label={`VoiceStudio${lista.voicestudio.zywe ? '' : ' (śpi)'}`}>{lista.voicestudio.profile.map((p) => <option key={p.id} value={`voicestudio:${p.id}`}>{p.nazwa}</option>)}</optgroup>}
+                    </select>
+                    <div className="mt-1 text-slate-500">Ta barwa gra wszędzie, gdzie Joanna mówi — tu, w Katedrze i na telefonie. Tekst przed mową jest czyszczony z emoji i znaczników.</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-black/40 p-3">
                     <div className="font-mono uppercase tracking-wider text-slate-500">VoiceStudio (klon, OmniVoice)</div>
-                    {studio?.zywe
-                        ? <div className="mt-1 text-emerald-300">żyje · głosów: {studio.glosy?.length ?? 0}</div>
-                        : <div className="mt-1 text-amber-300">{studio?.braki?.[0] ?? 'śpi — osobny program'}</div>}
+                    {lista?.voicestudio.zywe
+                        ? <div className="mt-1 text-emerald-300">żyje · głosów: {lista.voicestudio.profile.length}</div>
+                        : <div className="mt-1 text-amber-300">{lista?.voicestudio.braki?.[0] ?? 'śpi — osobny program'}</div>}
                     <div className="mt-1 text-slate-600">⚠️ VoiceStudio i render Wan dzielą tę samą kartę 6 GB — nie odpalaj go w trakcie renderu.</div>
                 </div>
-                {piper && (
-                    <div className="rounded-xl border border-white/10 bg-black/40 p-3">
-                        <div className="font-mono uppercase tracking-wider text-slate-500">powiedz to teraz</div>
-                        <div className="mt-2 flex gap-2">
-                            <select value={glos} onChange={(e) => setGlos(e.target.value)} className="rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-slate-200">
-                                {piper.glosy.map((g) => <option key={g} value={g}>{g}</option>)}
-                            </select>
-                            <input value={tekst} onChange={(e) => setTekst(e.target.value)} className="flex-1 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-slate-200" />
-                            <button onClick={powiedz} disabled={mowi} className="rounded-lg px-3 text-xs font-bold text-black disabled:opacity-40" style={{ backgroundColor: kolor }}>
-                                {mowi ? '…' : 'MÓW'}
-                            </button>
-                        </div>
+                <div className="rounded-xl border border-white/10 bg-black/40 p-3">
+                    <div className="font-mono uppercase tracking-wider text-slate-500">powiedz to teraz (głosem Joanny)</div>
+                    <div className="mt-2 flex gap-2">
+                        <input value={tekst} onChange={(e) => setTekst(e.target.value)} className="flex-1 rounded-lg border border-white/10 bg-black/40 px-2 py-1 text-xs text-slate-200" />
+                        <button onClick={() => void powiedz()} disabled={mowi} className="rounded-lg px-3 text-xs font-bold text-black disabled:opacity-40" style={{ backgroundColor: kolor }}>
+                            {mowi ? '…' : 'MÓW'}
+                        </button>
                     </div>
-                )}
+                </div>
+                {uwaga && <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-2 text-amber-200">{uwaga}</div>}
             </div>
         </div>
     );
