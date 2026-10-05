@@ -56,6 +56,9 @@ export const SamplerGlosuPanel: React.FC = () => {
   const [nazwa, setNazwa] = useState('');
   const [aktorId, setAktorId] = useState('');
   const [dlaJoanny, setDlaJoanny] = useState(false);
+  // 📦 Postacie Składnicy Katedry — zapisany głos trafia też do karty postaci (wspólnej dla Story, Gier, Podcastu).
+  const [postacie, setPostacie] = useState<{ id: string; nazwa: string }[]>([]);
+  const [postacId, setPostacId] = useState('');
   const [praca, setPraca] = useState('');
   const [nagrywa, setNagrywa] = useState(0);
   const [gra, setGra] = useState(false);
@@ -78,6 +81,7 @@ export const SamplerGlosuPanel: React.FC = () => {
     void odswiez();
     most<{ dostepne: boolean; braki: string[] }>('/api/stemy/status').then(setDemucs).catch(() => setDemucs(null));
     most<{ aktorzy: Aktor[] }>('/api/aktorzy').then((d) => setAktorzy(d.aktorzy.filter((a) => a.id !== 'kronikarz'))).catch(() => setAktorzy([]));
+    most<{ assety: { id: string; nazwa: string }[] }>('/api/skladnica?rodzaj=postacie').then((d) => setPostacie(d.assety)).catch(() => setPostacie([]));
     most<{ tracks?: Utwor[] }>('/api/bridge/execute', { method: 'POST', body: JSON.stringify({ action: 'GET_LOCAL_PLAYLIST' }) })
       .then((d) => setUtwory(d.tracks ?? [])).catch(() => setUtwory([]));
   }, [odswiez]);
@@ -167,8 +171,9 @@ export const SamplerGlosuPanel: React.FC = () => {
 
   async function zapiszGlos() {
     const aktor = aktorzy.find((a) => a.id === aktorId);
-    const n = nazwa.trim() || aktor?.imie || (dlaJoanny ? 'Joanna' : '');
-    if (!stem || !n) { toast.error('Nazwij głos (albo wybierz aktora).'); return; }
+    const postac = postacie.find((p) => p.id === postacId);
+    const n = nazwa.trim() || aktor?.imie || postac?.nazwa || (dlaJoanny ? 'Joanna' : '');
+    if (!stem || !n) { toast.error('Nazwij głos (albo wybierz aktora czy postać).'); return; }
     setPraca('glos');
     const t = toast.loading('Wycinam głos z próbki…');
     try {
@@ -176,7 +181,8 @@ export const SamplerGlosuPanel: React.FC = () => {
         method: 'POST', body: JSON.stringify({ stem, od, do: doS > od ? doS : null, nazwa: n, aktorId: aktorId || undefined }),
       });
       if (dlaJoanny) await most('/api/glos/stado', { method: 'PUT', body: JSON.stringify({ id: 'joanna', glos: { profil: w.profil.id } }) });
-      const komu = [w.aktor ? `gra nim ${w.aktor.imie}` : '', dlaJoanny ? 'mówi nim Joanna' : ''].filter(Boolean).join(', ');
+      if (postac) await most('/api/skladnica', { method: 'POST', body: JSON.stringify({ rodzaj: 'postacie', id: postac.id, glos: { profil: w.profil.id } }) });
+      const komu = [w.aktor ? `gra nim ${w.aktor.imie}` : '', postac ? `📦 ${postac.nazwa} w Składnicy` : '', dlaJoanny ? 'mówi nim Joanna' : ''].filter(Boolean).join(', ');
       toast.success(`Głos „${w.profil.nazwa}” gotowy (${w.sekundy.toFixed(1)} s próbki)${komu ? ` — ${komu}` : ' — wybierzesz go w Głosach (Joanna, TeOgochi, aktorzy)'}.`, { id: t, duration: 9000 });
     } catch (e) { toast.error(blad(e), { id: t, duration: 10000 }); } finally { setPraca(''); }
   }
@@ -298,6 +304,12 @@ export const SamplerGlosuPanel: React.FC = () => {
               <option value="">— bez aktora —</option>
               {aktorzy.map((a) => <option key={a.id} value={a.id}>🎭 {a.imie}</option>)}
             </select>
+            {postacie.length > 0 && (
+              <select className={pole} value={postacId} onChange={(e) => setPostacId(e.target.value)} title="Głos zapisze się też w karcie postaci Składnicy Katedry">
+                <option value="">— bez postaci Składnicy —</option>
+                {postacie.map((p) => <option key={p.id} value={p.id}>📦 {p.nazwa}</option>)}
+              </select>
+            )}
             <label className="flex items-center gap-1.5 text-[11px] font-mono text-slate-300 cursor-pointer">
               <input type="checkbox" checked={dlaJoanny} onChange={(e) => setDlaJoanny(e.target.checked)} /> Joanna mówi tym głosem
             </label>
