@@ -17,6 +17,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Piano, Square, CircleDot, Download, Wrench, Brain, Volume2, GraduationCap, Play } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SilnikJamu, PADY, NUTY_GM_PADOW } from '../jam/silnik';
+import AranzJoannyPanel from './AranzJoannyPanel';
 import { kwantyzuj, odpowiedz, opisFrazy, wybierzStrategie, STRATEGIE, czyStrategia, type Nuta, type ZdarzenieNuty, type Strategia } from '../jam/fraza';
 import { wykryjTonacje, nazwaNuty, type Tonacja } from '../jam/teoria';
 import { zapiszMid } from '../jam/midiPlik';
@@ -504,6 +505,9 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
                     </div>
                 </div>
             </div>
+
+            {/* 🎼 Joanna aranżuje szkic — z nagranych jamów */}
+            <AranzJoannyPanel odswiezenie={nagrany?.audio ?? null} />
 
             {/* co urządzenie naprawdę wysyła */}
             <details className="rounded-xl border border-white/10 bg-black/30 p-3" open={!mapa.zmierzona}>

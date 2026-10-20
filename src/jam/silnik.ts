@@ -15,7 +15,52 @@ export const PADY = [
 /** Nuty GM perkusji do pliku .mid (kanał 10). */
 export const NUTY_GM_PADOW = [36, 38, 42, 46, 39, 45, 50, 37];
 
-const hz = (wys: number) => 440 * 2 ** ((wys - 69) / 12);
+export const hz = (wys: number) => 440 * 2 ** ((wys - 69) / 12);
+
+/** Szum biały (bufor do werbla, hi-hatów, klasku). */
+export function buforSzumu(ctx: BaseAudioContext, s = 1) {
+    const b = ctx.createBuffer(1, Math.floor(ctx.sampleRate * s), ctx.sampleRate);
+    const d = b.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return b;
+}
+
+/**
+ * Jeden pad perkusji syntezowanej o czasie `t` — wspólne dla gry na żywo (AudioContext)
+ * i renderu demo aranżu (OfflineAudioContext), żeby demo brzmiało jak jam.
+ */
+export function uderzPerkusje(ctx: BaseAudioContext, wy: AudioNode, szumB: AudioBuffer, i: number, sila: number, t: number) {
+    const v = Math.max(0.05, sila / 127);
+    const env = (g: GainNode, szczyt: number, dl: number) => { g.gain.setValueAtTime(szczyt * v, t); g.gain.exponentialRampToValueAtTime(0.0008, t + dl); };
+    const szum = (dl: number, filtr: BiquadFilterOptions, szczyt: number, opozn = 0) => {
+        const s = new AudioBufferSourceNode(ctx, { buffer: szumB });
+        const f = new BiquadFilterNode(ctx, filtr);
+        const g = new GainNode(ctx, { gain: 0 });
+        g.gain.setValueAtTime(0, t + opozn);
+        g.gain.setValueAtTime(szczyt * v, t + opozn);
+        g.gain.exponentialRampToValueAtTime(0.0008, t + opozn + dl);
+        s.connect(f).connect(g).connect(wy);
+        s.start(t + opozn, Math.random() * 0.5, dl + 0.05);
+    };
+    const ton = (typ: OscillatorType, z: number, na: number, dl: number, szczyt: number) => {
+        const o = new OscillatorNode(ctx, { type: typ, frequency: z });
+        o.frequency.exponentialRampToValueAtTime(na, t + dl * 0.6);
+        const g = new GainNode(ctx, { gain: 0 });
+        env(g, szczyt, dl);
+        o.connect(g).connect(wy);
+        o.start(t); o.stop(t + dl + 0.05);
+    };
+    switch (PADY[((i % 8) + 8) % 8].id) {
+        case 'stopa': ton('sine', 150, 42, 0.42, 1); break;
+        case 'werbel': ton('triangle', 190, 140, 0.14, 0.45); szum(0.2, { type: 'bandpass', frequency: 1900, Q: 0.7 }, 0.7); break;
+        case 'hihat': szum(0.05, { type: 'highpass', frequency: 7500 }, 0.5); break;
+        case 'hihatOtw': szum(0.32, { type: 'highpass', frequency: 7000 }, 0.4); break;
+        case 'klask': for (const d of [0, 0.011, 0.023]) szum(d === 0.023 ? 0.18 : 0.02, { type: 'bandpass', frequency: 1200, Q: 1.2 }, 0.7, d); break;
+        case 'tomNiski': ton('sine', 130, 80, 0.38, 0.8); break;
+        case 'tomWysoki': ton('sine', 210, 140, 0.3, 0.7); break;
+        case 'obrecz': ton('square', 820, 760, 0.04, 0.3); szum(0.03, { type: 'highpass', frequency: 3000 }, 0.3); break;
+    }
+}
 
 interface Glos { osc: OscillatorNode[]; baza: number[]; g: GainNode; kto: Kto; wys: number }
 
@@ -55,19 +100,13 @@ export class SilnikJamu {
         komp.connect(this.nagrywarka);
         this.metronomG = new GainNode(ctx, { gain: 0.35 });
         this.metronomG.connect(ctx.destination);
-        this.szum = this.bufSzumu(1);
+        this.szum = buforSzumu(ctx, 1);
         this.vibrato = new OscillatorNode(ctx, { frequency: 5.5 });
         this.vibratoG = new GainNode(ctx, { gain: 0 });
         this.vibrato.connect(this.vibratoG);
         this.vibrato.start();
     }
 
-    private bufSzumu(s: number) {
-        const b = this.ctx.createBuffer(1, Math.floor(this.ctx.sampleRate * s), this.ctx.sampleRate);
-        const d = b.getChannelData(0);
-        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-        return b;
-    }
     private ogon(s: number) {
         const n = Math.floor(this.ctx.sampleRate * s);
         const b = this.ctx.createBuffer(2, n, this.ctx.sampleRate);
@@ -145,38 +184,7 @@ export class SilnikJamu {
 
     // ── pady ────────────────────────────────────────────────
     pad(i: number, sila: number, kiedy = 0) {
-        const t = Math.max(this.ctx.currentTime, kiedy || 0);
-        const v = Math.max(0.05, sila / 127);
-        const wy = this.szyny.perkusja;
-        const env = (g: GainNode, szczyt: number, dl: number) => { g.gain.setValueAtTime(szczyt * v, t); g.gain.exponentialRampToValueAtTime(0.0008, t + dl); };
-        const szum = (dl: number, filtr: BiquadFilterOptions, szczyt: number, opozn = 0) => {
-            const s = new AudioBufferSourceNode(this.ctx, { buffer: this.szum });
-            const f = new BiquadFilterNode(this.ctx, filtr);
-            const g = new GainNode(this.ctx, { gain: 0 });
-            g.gain.setValueAtTime(0, t + opozn);
-            g.gain.setValueAtTime(szczyt * v, t + opozn);
-            g.gain.exponentialRampToValueAtTime(0.0008, t + opozn + dl);
-            s.connect(f).connect(g).connect(wy);
-            s.start(t + opozn, Math.random() * 0.5, dl + 0.05);
-        };
-        const ton = (typ: OscillatorType, z: number, na: number, dl: number, szczyt: number) => {
-            const o = new OscillatorNode(this.ctx, { type: typ, frequency: z });
-            o.frequency.exponentialRampToValueAtTime(na, t + dl * 0.6);
-            const g = new GainNode(this.ctx, { gain: 0 });
-            env(g, szczyt, dl);
-            o.connect(g).connect(wy);
-            o.start(t); o.stop(t + dl + 0.05);
-        };
-        switch (PADY[((i % 8) + 8) % 8].id) {
-            case 'stopa': ton('sine', 150, 42, 0.42, 1); break;
-            case 'werbel': ton('triangle', 190, 140, 0.14, 0.45); szum(0.2, { type: 'bandpass', frequency: 1900, Q: 0.7 }, 0.7); break;
-            case 'hihat': szum(0.05, { type: 'highpass', frequency: 7500 }, 0.5); break;
-            case 'hihatOtw': szum(0.32, { type: 'highpass', frequency: 7000 }, 0.4); break;
-            case 'klask': for (const d of [0, 0.011, 0.023]) szum(d === 0.023 ? 0.18 : 0.02, { type: 'bandpass', frequency: 1200, Q: 1.2 }, 0.7, d); break;
-            case 'tomNiski': ton('sine', 130, 80, 0.38, 0.8); break;
-            case 'tomWysoki': ton('sine', 210, 140, 0.3, 0.7); break;
-            case 'obrecz': ton('square', 820, 760, 0.04, 0.3); szum(0.03, { type: 'highpass', frequency: 3000 }, 0.3); break;
-        }
+        uderzPerkusje(this.ctx, this.szyny.perkusja, this.szum, i, sila, Math.max(this.ctx.currentTime, kiedy || 0));
     }
 
     // ── metronom ────────────────────────────────────────────
