@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Radio, Activity, Mic2, ArrowLeft, Grid3x3, Scissors, Wrench, AudioLines, Package
+  Radio, Activity, Mic2, ArrowLeft, Grid3x3, Scissors, Wrench, AudioLines, Package, Piano
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import BioResonanceEngine from './components/BioResonanceEngine';
@@ -15,6 +15,7 @@ import RzezbaPanel from './components/RzezbaPanel';
 import WarsztatPanel from './components/WarsztatPanel';
 import SamplerGlosuPanel from './components/SamplerGlosuPanel';
 import SkladnicaPanel from './components/SkladnicaPanel';
+import JamZJoannaPanel from './components/JamZJoannaPanel';
 import { JoannaPopup } from './components/JoannaPopup';
 import type { StartBitu } from './components/BitGridPanel';
 import type { WynikWorkflow } from './workflow/joannaWorkflow';
@@ -39,7 +40,7 @@ function getInitialTeleport(): { params: TeleportParams | null; active: string |
   // Wejście wprost w moduł: /?modul=bity — pozwala Katedrze (i Joannie)
   // teleportować Suwerena od razu tam, gdzie trzeba, zamiast na landing.
   const modul = query.get('modul');
-  const ZNANE_MODULY = ['ai', 'bity', 'rzezba', 'sampler', 'skladnica', 'radio', 'engine'];
+  const ZNANE_MODULY = ['ai', 'jam', 'bity', 'rzezba', 'sampler', 'skladnica', 'radio', 'engine'];
   if (modul && ZNANE_MODULY.includes(modul) && !style && !prompt) {
     return { params: null, active: modul };
   }
@@ -159,6 +160,14 @@ function App() {
               />
 
               <HolographicCard
+                title="Jam z Joanną"
+                description="Grasz na MPK mini (MIDI) — Joanna odpowiada frazą na żywo. Nagranie do biblioteki."
+                icon={Piano}
+                color="#ec4899"
+                onClick={() => setActiveModule('jam')}
+              />
+
+              <HolographicCard
                 title="Panel Bitów"
                 description="Step-Grid 0.00G. Perkusja syntezowana, strojenie 432Hz."
                 icon={Grid3x3}
@@ -235,6 +244,9 @@ function App() {
           >
             {/* ⚙️ MODUŁ BIO-REZONANSU */}
             {activeModule === 'engine' && <BioResonanceEngine />}
+
+            {/* 🎹 JAM Z JOANNĄ — MPK mini przez Web MIDI, pytanie–odpowiedź, nagranie .mid + mp3 do _OtakOs_Muzyka/Jam z Joanną */}
+            {activeModule === 'jam' && <JamZJoannaPanel onDoWarsztatu={(w) => { setWarsztatStart(w); setActiveModule('warsztat'); }} />}
 
             {/* 🥁 PANEL BITÓW — sekwencer krokowy */}
             {activeModule === 'bity' && <BitGridPanel start={startBitu} />}
