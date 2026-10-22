@@ -14,10 +14,11 @@ import toast from 'react-hot-toast';
 import { analizujMid, opisAnalizy, type Analiza } from '../jam/analiza';
 import { aranzuj, SEKCJE_UTWORU, type PlanUtworu } from '../jam/aranz';
 import { zapiszMid } from '../jam/midiPlik';
-import { renderujDemo } from '../jam/render';
+import { renderujDemo, type PadyDemo } from '../jam/render';
+import { oczyscZestaw } from '../jam/pady';
 
 const MOST = 'http://127.0.0.1:3001';
-interface Jam { nazwa: string; kiedy: string; bpm: number; tonacja: string | null; audio: string; midi: string; url: string; urlMidi: string | null }
+interface Jam { nazwa: string; kiedy: string; bpm: number; tonacja: string | null; audio: string; midi: string; url: string; urlMidi: string | null; zestawPadow?: string | null }
 interface Aranz {
     id: string; utworzono: string; stan: 'propozycja' | 'przyjety' | 'odrzucony'; jam: string | null; model: string | null; poprawiony: boolean;
     analiza: { bpm: number; tonacja: string; motywy: { nr: number; takty: number; nut: number; melodia: string }[] };
@@ -35,6 +36,16 @@ async function most<T>(p: string, init?: RequestInit): Promise<T> {
     const d = await r.json().catch(() => ({}));
     if (!r.ok || !d.success) throw new Error(d.message || `HTTP ${r.status}`);
     return d as T;
+}
+/** Zestaw padów, który grał w jamie → bufory do demo (bez zestawu / most milczy = perkusja syntezowana). */
+async function padyJamu(id: string | null): Promise<PadyDemo | null> {
+    if (!id) return null;
+    try {
+        const d = await most<{ zestaw: { pady: { url: string | null }[] } }>(`/api/jam/pady/${id}`);
+        const dek = new OfflineAudioContext(1, 1, 44100);
+        const probki = await Promise.all(d.zestaw.pady.map(async (p) => (p.url ? dek.decodeAudioData(await (await fetch(`${MOST}${p.url}`)).arrayBuffer()).catch(() => null) : null)));
+        return probki.some(Boolean) ? { zestaw: oczyscZestaw(d.zestaw), probki } : null;
+    } catch { return null; }
 }
 const analizaJamu = async (rel: string): Promise<Analiza> => {
     const r = await fetch(`${MOST}/music/${rel.split('/').map(encodeURIComponent).join('/')}`);
@@ -119,7 +130,9 @@ export const AranzJoannyPanel: React.FC<{ odswiezenie?: string | null }> = ({ od
             const ar = aranzuj({ plan: a.plan, motywy: analiza.motywy, tonacja: analiza.tonacja, bpm: a.analiza.bpm, ziarno: ziarnoZId(a.id) });
             const mid = zapiszMid({ bpm: a.analiza.bpm, sciezki: ar.sciezki });
             const t0 = performance.now();
-            const { wav } = await renderujDemo(ar, a.analiza.bpm);
+            const pady = await padyJamu(jamy.find((j) => j.midi === a.jam)?.zestawPadow ?? null);
+            const { wav, zProbek } = await renderujDemo(ar, a.analiza.bpm, 44100, pady);
+            if (pady) toast(`Perkusja demo: ${zProbek} uderzeń z próbek zestawu padów jamu, reszta syntezowana.`);
             const wavBlob = new Blob([wav.slice().buffer], { type: 'audio/wav' });
             if (graj.current) { graj.current.src = URL.createObjectURL(wavBlob); void graj.current.play(); }
             setPraca(`zapisuję demo (render ${((performance.now() - t0) / 1000).toFixed(1)} s)…`);

@@ -88,7 +88,7 @@ export function trybGalki(wartosci: number[]): GalkaMapy['tryb'] {
     return 'abs';
 }
 
-export type EtapPomiaru = 'pady' | 'galki' | 'joystick' | 'gotowe';
+export type EtapPomiaru = 'pady' | 'padyB' | 'galki' | 'joystick' | 'gotowe';
 export interface StanPomiaru {
     etap: EtapPomiaru;
     mapa: MapaKontrolera;
@@ -104,11 +104,13 @@ export const startPomiaru = (urzadzenie: string): StanPomiaru => ({ etap: 'pady'
  */
 export function krokPomiaru(s: StanPomiaru, w: Wiadomosc): StanPomiaru {
     const m = s.mapa;
-    if (s.etap === 'pady' && w.typ === 'nuta') {
+    if ((s.etap === 'pady' || s.etap === 'padyB') && w.typ === 'nuta') {
         if (m.pady.some((p) => p.kanal === w.kanal && p.wys === w.wys)) return s;
         const pady = [...m.pady, { kanal: w.kanal, wys: w.wys }];
-        return { ...s, mapa: { ...m, pady }, etap: pady.length >= 8 ? 'galki' : 'pady' };
+        // po 8 padach Bank B jest opcjonalny: nowe nuty = pady 9–16, pierwsza gałka = koniec padów
+        return { ...s, mapa: { ...m, pady }, etap: pady.length >= 16 ? 'galki' : pady.length >= 8 ? 'padyB' : 'pady' };
     }
+    if (s.etap === 'padyB' && w.typ === 'cc') return krokPomiaru({ ...s, etap: 'galki' }, w);
     if (s.etap === 'galki' && w.typ === 'cc') {
         const k = `${w.kanal}:${w.cc}`;
         const zebrane = { ...s.zebrane, [k]: [...(s.zebrane[k] ?? []), w.wartosc] };
@@ -129,7 +131,7 @@ export function krokPomiaru(s: StanPomiaru, w: Wiadomosc): StanPomiaru {
 }
 
 export function nastepnyEtap(s: StanPomiaru, kiedy = new Date().toISOString()): StanPomiaru {
-    const kol: EtapPomiaru[] = ['pady', 'galki', 'joystick', 'gotowe'];
+    const kol: EtapPomiaru[] = ['pady', 'padyB', 'galki', 'joystick', 'gotowe'];
     const etap = kol[Math.min(kol.length - 1, kol.indexOf(s.etap) + 1)];
     return { ...s, etap, mapa: etap === 'gotowe' ? { ...s.mapa, zmierzona: kiedy } : s.mapa };
 }

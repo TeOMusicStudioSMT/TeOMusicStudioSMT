@@ -7,6 +7,8 @@
  * kompresor → głośniki ORAZ nagrywarka. Metronom idzie tylko do głośników (nie do nagrania).
  */
 
+import { doWyciszenia, mnoznikNormalizacji, planPetli, przytnij, szczyt, szybkoscZeStroju, wzmocnienieZSily, type ZestawPadow } from './pady.ts';
+
 export type Kto = 'suweren' | 'joanna';
 export const PADY = [
     { id: 'stopa', nazwa: 'Stopa' }, { id: 'werbel', nazwa: 'Werbel' }, { id: 'hihat', nazwa: 'Hi-hat' }, { id: 'hihatOtw', nazwa: 'Hi-hat otw.' },
@@ -78,6 +80,15 @@ export class SilnikJamu {
     private vibrato: OscillatorNode;
     private vibratoG: GainNode;
     readonly nagrywarka: MediaStreamAudioDestinationNode;
+    // 🥁 pady z dźwiękiem (src/jam/pady.ts): bufor i mnożnik normalizacji na pad, grające źródła, pętle
+    private zestaw: ZestawPadow | null = null;
+    private probki: (AudioBuffer | null)[] = [];
+    private norm: number[] = [];
+    private grajace = new Map<number, { src: AudioBufferSourceNode; g: GainNode }[]>();
+    private petle = new Map<number, { timer: number; nast: number }>();
+    /** Siatka metronomu jamu (gdy gra) — pętle padów startują na uderzeniu. */
+    zegar: { t0: number; beatSek: number } | null = null;
+    bpmZapasowy = 120;
 
     constructor() {
         const ctx = new AudioContext({ latencyHint: 'interactive' });
@@ -180,12 +191,73 @@ export class SilnikJamu {
         for (const o of g.osc) o.stop(doT + rel * 2);
         this.glosy.delete(klucz);
     }
-    wszystkoCisza() { for (const k of [...this.glosy.keys()]) this.nutaWyl(k); }
+    wszystkoCisza() { for (const k of [...this.glosy.keys()]) this.nutaWyl(k); this.cichoPady(); }
 
     // ── pady ────────────────────────────────────────────────
-    pad(i: number, sila: number, kiedy = 0) {
-        uderzPerkusje(this.ctx, this.szyny.perkusja, this.szum, i, sila, Math.max(this.ctx.currentTime, kiedy || 0));
+    /** Zestaw padów + bufory (null = perkusja syntezowana na tym padzie). */
+    ustawZestaw(z: ZestawPadow | null, probki: (AudioBuffer | null)[] = []) {
+        for (const i of [...this.petle.keys()]) this.zatrzymajPetle(i);
+        this.zestaw = z;
+        this.probki = probki;
+        this.norm = probki.map((b) => (b ? mnoznikNormalizacji(szczyt(Array.from({ length: b.numberOfChannels }, (_, c) => b.getChannelData(c)))) : 1));
     }
+    /** Ustawienia bez przeładowania buforów (edycja padu na żywo). */
+    ustawUstawienia(z: ZestawPadow) { this.zestaw = z; }
+    czyPetla(i: number) { return this.petle.has(i); }
+
+    private zgas(i: number, t: number, zanik = 0.03) {
+        for (const { src, g } of this.grajace.get(i) ?? []) { g.gain.cancelScheduledValues(t); g.gain.setTargetAtTime(0, t, zanik / 3); try { src.stop(t + zanik * 3); } catch { /* już stoi */ } }
+        this.grajace.delete(i);
+    }
+    private zagrajProbke(i: number, sila: number, t: number, maxDl?: number) {
+        const b = this.probki[i], p = this.zestaw?.pady[i];
+        if (!b || !p) return;
+        const { od, dl } = przytnij(b.duration, p.od, p.do);
+        const src = new AudioBufferSourceNode(this.ctx, { buffer: b, playbackRate: szybkoscZeStroju(p.stroj) });
+        const g = new GainNode(this.ctx, { gain: p.glosnosc * (p.normalizacja ? this.norm[i] ?? 1 : 1) * wzmocnienieZSily(sila, p.czulosc) });
+        src.connect(g).connect(this.szyny.perkusja);
+        const czas = Math.min(dl, maxDl ?? Infinity);
+        src.start(t, od, p.tryb === 'trzymaj' ? dl : czas);
+        if (maxDl !== undefined) { g.gain.setValueAtTime(g.gain.value, t + Math.max(0, czas - 0.01)); g.gain.linearRampToValueAtTime(0, t + czas); }
+        const lista = this.grajace.get(i) ?? [];
+        lista.push({ src, g });
+        this.grajace.set(i, lista);
+        src.onended = () => { const l = this.grajace.get(i); if (l) { const r = l.filter((x) => x.src !== src); if (r.length) this.grajace.set(i, r); else this.grajace.delete(i); } };
+    }
+    private zatrzymajPetle(i: number) {
+        const p = this.petle.get(i);
+        if (p) clearInterval(p.timer);
+        this.petle.delete(i);
+        this.zgas(i, this.ctx.currentTime, 0.05);
+    }
+
+    /** Uderzenie w pad (0–15): próbka z ustawieniami albo perkusja syntezowana; grupa wycisza resztę. */
+    pad(i: number, sila: number, kiedy = 0) {
+        const t = Math.max(this.ctx.currentTime, kiedy || 0);
+        const p = this.zestaw?.pady[i];
+        if (!p || !this.probki[i]) { uderzPerkusje(this.ctx, this.szyny.perkusja, this.szum, i % 8, sila, t); return; }
+        if (this.zestaw) for (const j of doWyciszenia(i, this.zestaw)) { if (this.petle.has(j)) this.zatrzymajPetle(j); else this.zgas(j, t); }
+        if (p.tryb === 'petla') {
+            if (this.petle.has(i)) { this.zatrzymajPetle(i); return; }   // drugie uderzenie = stop pętli
+            const z = this.zegar ?? { t0: t, beatSek: 60 / this.bpmZapasowy };
+            const { start, okres } = planPetli(t, z.t0, z.beatSek, p.petlaUderzen);
+            const stan = { timer: 0, nast: start };
+            const planuj = () => { while (stan.nast < this.ctx.currentTime + 0.2) { this.zagrajProbke(i, sila, stan.nast, okres); stan.nast += okres; } };
+            planuj();
+            stan.timer = window.setInterval(planuj, 50);
+            this.petle.set(i, stan);
+            return;
+        }
+        if (p.tryb === 'trzymaj') this.zgas(i, t);
+        this.zagrajProbke(i, sila, t);
+    }
+    /** Puszczenie padu: w trybie „trzymaj” dźwięk gaśnie. */
+    padPuszczony(i: number) {
+        if (this.zestaw?.pady[i]?.tryb === 'trzymaj') this.zgas(i, this.ctx.currentTime, 0.04);
+    }
+    /** Pomiar dla testów i podglądu (`window.__jam`): pady z próbką, co gra, pętle. */
+    stanPadow() { return { zProbka: this.probki.map((b, i) => (b ? i : -1)).filter((i) => i >= 0), grajace: [...this.grajace.keys()], petle: [...this.petle.keys()], nastepneUderzeniaPetli: [...this.petle.values()].map((p) => p.nast), zegar: this.zegar }; }
+    cichoPady() { for (const i of [...this.petle.keys()]) this.zatrzymajPetle(i); for (const i of [...this.grajace.keys()]) this.zgas(i, this.ctx.currentTime); }
 
     // ── metronom ────────────────────────────────────────────
     klik(kiedy: number, akcent: boolean) {

@@ -8,6 +8,7 @@
 
 import { buforSzumu, hz, uderzPerkusje } from './silnik.ts';
 import type { Aranz } from './aranz.ts';
+import { mnoznikNormalizacji, przytnij, szczyt, szybkoscZeStroju, wzmocnienieZSily, type ZestawPadow } from './pady.ts';
 
 /** Kanały float −1…1 → WAV PCM 16-bit (little-endian). */
 export function wavZKanalow(kanaly: Float32Array[], sr: number): Uint8Array {
@@ -25,7 +26,10 @@ export function wavZKanalow(kanaly: Float32Array[], sr: number): Uint8Array {
 /** GM perkusji → pad syntezowany jamu (talerz 49 = otwarty hi-hat — przybliżenie, mówimy to). */
 const PAD_Z_GM: Record<number, number> = { 36: 0, 38: 1, 42: 2, 46: 3, 39: 4, 45: 5, 50: 6, 37: 7, 49: 3 };
 
-export async function renderujDemo(a: Aranz, bpm: number, sr = 44100): Promise<{ wav: Uint8Array; sekundy: number }> {
+/** Perkusja demo z próbek zestawu padów jamu (gdy pad ma próbkę), inaczej syntezowana. */
+export interface PadyDemo { zestaw: ZestawPadow; probki: (AudioBuffer | null)[] }
+
+export async function renderujDemo(a: Aranz, bpm: number, sr = 44100, pady: PadyDemo | null = null): Promise<{ wav: Uint8Array; sekundy: number; zProbek: number }> {
     const sb = 60 / bpm;
     const sekundy = a.beatow * sb + 2.5;
     const ctx = new OfflineAudioContext(2, Math.ceil(sekundy * sr), sr);
@@ -76,8 +80,21 @@ export async function renderujDemo(a: Aranz, bpm: number, sr = 44100): Promise<{
     const pa = akk.program ?? 89;
     for (const n of akk.nuty) glos(sakk, pa === 19 ? ['square', 'sine'] : ['sawtooth', 'sawtooth'], n.wys, n.sila, n.start, n.dl, { atak: pa === 25 ? 0.004 : 0.08, zanik: 0.6, podtrzymanie: pa === 25 ? 0.2 : 0.75, puszczenie: 0.35, filtr: 1600 });
     for (const n of bas.nuty) glos(sbas, ['sine', 'sawtooth'], n.wys, n.sila, n.start, n.dl, { atak: 0.005, zanik: 0.25, podtrzymanie: 0.7, puszczenie: 0.08, filtr: 450 });
-    for (const n of perk.nuty) uderzPerkusje(ctx, sperk, szum, PAD_Z_GM[n.wys] ?? 2, n.sila, n.start * sb);
+    let zProbek = 0;
+    for (const n of perk.nuty) {
+        const i = PAD_Z_GM[n.wys] ?? 2;
+        const b = pady?.probki[i], p = pady?.zestaw.pady[i];
+        if (b && p) {
+            // ten sam dźwięk co pad w jamie: przycięcie, strój, głośność, normalizacja, czułość (tryby pętli/trzymaj = jeden strzał)
+            const { od, dl } = przytnij(b.duration, p.od, p.do);
+            const src = new AudioBufferSourceNode(ctx, { buffer: b, playbackRate: szybkoscZeStroju(p.stroj) });
+            const norm = p.normalizacja ? mnoznikNormalizacji(szczyt(Array.from({ length: b.numberOfChannels }, (_, c) => b.getChannelData(c)))) : 1;
+            src.connect(new GainNode(ctx, { gain: p.glosnosc * norm * wzmocnienieZSily(n.sila, p.czulosc) })).connect(sperk);
+            src.start(n.start * sb, od, dl);
+            zProbek++;
+        } else uderzPerkusje(ctx, sperk, szum, i, n.sila, n.start * sb);
+    }
 
     const buf = await ctx.startRendering();
-    return { wav: wavZKanalow([buf.getChannelData(0), buf.getChannelData(1)], sr), sekundy: Math.round(sekundy * 10) / 10 };
+    return { wav: wavZKanalow([buf.getChannelData(0), buf.getChannelData(1)], sr), sekundy: Math.round(sekundy * 10) / 10, zProbek };
 }

@@ -136,7 +136,7 @@ test('pomiar: pady, gałki z trybem, joystick → mapa', () => {
     // pady na kanale 1 (np. preset bez kanału 10)
     for (let i = 0; i < 8; i++) s = krokPomiaru(s, odczytaj([0x90, 44 + i, 100]));
     s = krokPomiaru(s, odczytaj([0x90, 44, 100])); // powtórka nic nie zmienia
-    assert.equal(s.etap, 'galki');
+    assert.equal(s.etap, 'padyB', 'po 8 padach Bank B jest opcjonalny');
     assert.equal(s.mapa.pady.length, 8);
     // gałki: K1 bezwzględna, K2 względna (1/127), reszta bezwzględna
     for (const v of [10, 20, 30, 40]) s = krokPomiaru(s, odczytaj([0xb0, 70, v]));

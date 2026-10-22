@@ -16,7 +16,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Piano, Square, CircleDot, Download, Wrench, Brain, Volume2, GraduationCap, Play } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { SilnikJamu, PADY, NUTY_GM_PADOW } from '../jam/silnik';
+import { SilnikJamu, NUTY_GM_PADOW } from '../jam/silnik';
+import { NUTY_GM_BANKU_B } from '../jam/pady';
+import PadyPanel from './PadyPanel';
 import AranzJoannyPanel from './AranzJoannyPanel';
 import { kwantyzuj, odpowiedz, opisFrazy, wybierzStrategie, STRATEGIE, czyStrategia, type Nuta, type ZdarzenieNuty, type Strategia } from '../jam/fraza';
 import { wykryjTonacje, nazwaNuty, type Tonacja } from '../jam/teoria';
@@ -100,7 +102,10 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
     const [nagrany, setNagrany] = useState<Nagrany | null>(null);
     const [zapisuje, setZapisuje] = useState(false);
     const [lokalnie, setLokalnie] = useState<{ audio: string; midi: string; typ: string } | null>(null);
-    const [pady, setPady] = useState<number[]>(new Array(8).fill(0));
+    const [pady, setPady] = useState<number[]>(new Array(16).fill(0));
+    const [bank, setBank] = useState<0 | 1>(0);
+    const bankR = useRef(bank); bankR.current = bank;
+    const zestawPadowR = useRef<string | null>(null);
     const [oktawaPc, setOktawaPc] = useState(4);
     const [dzwiek, setDzwiek] = useState(false);
 
@@ -131,6 +136,8 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
         void silnik.current.wznow().then(() => setDzwiek(silnik.current?.ctx.state === 'running'));
         return silnik.current;
     }, []);
+    // pomiar dla testów (jak window.__gra w grach): stan padów silnika
+    useEffect(() => { (window as unknown as { __jam?: object }).__jam = { pady: () => silnik.current?.stanPadow() ?? null, czas: () => silnik.current?.ctx.currentTime ?? 0 }; }, []);
     useEffect(() => () => {
         if (petla.current) clearInterval(petla.current.timer);
         if (rec.current?.mr.state === 'recording') rec.current.mr.stop();
@@ -168,7 +175,7 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
         daj().pad(i, sila);
         setPady((p) => { const n = [...p]; n[i] = Date.now(); return n; });
         window.setTimeout(() => setPady((p) => [...p]), 160);
-        if (rec.current) rec.current.nuty.push({ kanal: 'pady', wys: NUTY_GM_PADOW[i], sila, od: t, do: t + 0.1 });
+        if (rec.current) rec.current.nuty.push({ kanal: 'pady', wys: i < 8 ? NUTY_GM_PADOW[i] : NUTY_GM_BANKU_B[i - 8], sila, od: t, do: t + 0.1 });
     }, [daj]);
 
     const naWiadomosc = useCallback((dane: Uint8Array, znacznik: number) => {
@@ -182,6 +189,7 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
         const r = rozpoznaj(w, m);
         if (r.rola === 'klawisz') klawisz(r.wys, r.sila, r.puszczona, t);
         else if (r.rola === 'pad' && !r.puszczona) pad(r.indeks, r.sila, t);
+        else if (r.rola === 'pad' && r.puszczona) silnik.current?.padPuszczony(r.indeks);
         else if (r.rola === 'galka') ustawGalke(r.indeks, r.tryb === 'abs' ? r.wartosc / 127 : galkiR.current[r.indeks] + r.zmiana / 100);
         else if (r.rola === 'joystick') { if (r.os === 'x') daj().ustawOdstrojenie(r.wartosc); else daj().ustawVibrato(r.wartosc); }
     }, [klawisz, pad, ustawGalke, daj]);
@@ -220,7 +228,7 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
             const t = silnik.current?.ctx.currentTime ?? 0;
             if (k === 'z') { setOktawaPc((o) => Math.max(1, o - 1)); return; }
             if (k === 'x') { setOktawaPc((o) => Math.min(7, o + 1)); return; }
-            if (/^[1-8]$/.test(k)) { pad(Number(k) - 1, 100, t); return; }
+            if (/^[1-8]$/.test(k)) { if (!wcisniete.has(k)) { wcisniete.add(k); pad(bankR.current * 8 + Number(k) - 1, 100, t); } return; }
             const i = KLAWISZE_PC.indexOf(k);
             if (i < 0 || wcisniete.has(k)) return;
             wcisniete.add(k);
@@ -228,6 +236,7 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
         };
         const gora = (e: KeyboardEvent) => {
             const k = e.key.toLowerCase();
+            if (/^[1-8]$/.test(k)) { wcisniete.delete(k); silnik.current?.padPuszczony(bankR.current * 8 + Number(k) - 1); return; }
             const i = KLAWISZE_PC.indexOf(k);
             if (i < 0 || !wcisniete.has(k)) return;
             wcisniete.delete(k);
@@ -304,12 +313,14 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
             if (p.obsluzonyCykl < nrCyklu && teraz >= tKon - 0.06) { p.obsluzonyCykl = nrCyklu; odpowiedzNaFraze(nrCyklu, tStart, tKon); }
         }, 25);
         petla.current = p;
+        s.zegar = { t0, beatSek };   // pętle padów startują na uderzeniu metronomu jamu
         nastepna.current = null;
         setGra(true);
     }, [bpm, taktow, daj, odpowiedzNaFraze]);
     const stop = useCallback(() => {
         if (petla.current) clearInterval(petla.current.timer);
         petla.current = null;
+        if (silnik.current) silnik.current.zegar = null;
         silnik.current?.wszystkoCisza();
         setGra(false);
         setFaza({ kto: 'liczenie', takt: 0, z: 0 });
@@ -360,7 +371,7 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
         try {
             const res = await fetch(`${MOST}/api/jam/nagranie`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
                 audio: await doBase64(audio), typAudio: audio.type, midi: await doBase64(midiBlob),
-                meta: { nazwa: `jam ${tonacja ?? ''}`.trim(), bpm: Math.round(60 / beatSek), tonacja, fraz: uzyte.current.length, sekundy: koniec - r.start, strategie: uzyte.current, urzadzenie: urzadzenieR.current },
+                meta: { nazwa: `jam ${tonacja ?? ''}`.trim(), bpm: Math.round(60 / beatSek), tonacja, fraz: uzyte.current.length, sekundy: koniec - r.start, strategie: uzyte.current, urzadzenie: urzadzenieR.current, zestawPadow: zestawPadowR.current },
             }) });
             const d = await res.json().catch(() => ({}));
             if (!res.ok || !d.success) throw new Error(d.message || `HTTP ${res.status}`);
@@ -418,7 +429,7 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
 
             {pomiar && (
                 <div className="border border-amber-400/40 rounded-xl p-3 bg-amber-500/5 space-y-2">
-                    <div className="font-bold text-amber-200">🎓 Pomiar — {pomiar.etap === 'pady' ? `uderz pady po kolei od 1 do 8 (${pomiar.mapa.pady.length}/8)` : pomiar.etap === 'galki' ? `pokręć gałkami po kolei K1 → K8, każdą chwilę (${pomiar.mapa.galki.length}/8)` : 'rusz joystickiem w lewo/prawo i w górę/dół, potem „Dalej”'}</div>
+                    <div className="font-bold text-amber-200">🎓 Pomiar — {pomiar.etap === 'pady' ? `uderz pady po kolei od 1 do 8 (${pomiar.mapa.pady.length}/8)` : pomiar.etap === 'padyB' ? `Bank B (opcjonalnie): przełącz bank na MPK i uderz pady 9–16 (${pomiar.mapa.pady.length}/16) — albo od razu kręć K1, wtedy zostaje 8 padów` : pomiar.etap === 'galki' ? `pokręć gałkami po kolei K1 → K8, każdą chwilę (${pomiar.mapa.galki.length}/8)` : 'rusz joystickiem w lewo/prawo i w górę/dół, potem „Dalej”'}</div>
                     <div className="font-mono text-[11px] text-slate-300 space-y-0.5">
                         <div>pady: {pomiar.mapa.pady.map((p, i) => `${i + 1}=kan.${p.kanal + 1}/nuta ${p.wys}`).join(' · ') || '—'}</div>
                         <div>gałki: {pomiar.mapa.galki.map((g, i) => `K${i + 1}=kan.${g.kanal + 1}/CC${g.cc} ${g.tryb}`).join(' · ') || '—'}</div>
@@ -496,13 +507,10 @@ export const JamZJoannaPanel: React.FC<{ onDoWarsztatu?: (w: { plik: string; tag
                         ))}
                     </div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-black/30 p-3">
-                    <div className="text-[11px] text-slate-400 font-mono mb-2">PADY (klawisze 1–8) · klawiatura komputera: A W S E D F T G Y H U J K, Z/X oktawa ({oktawaPc})</div>
-                    <div className="grid grid-cols-4 gap-2">
-                        {PADY.map((p, i) => (
-                            <button key={p.id} onPointerDown={() => pad(i, 100, silnik.current?.ctx.currentTime ?? 0)} className={`h-12 rounded-lg border font-mono text-[10px] transition-colors ${Date.now() - pady[i] < 150 ? 'bg-pink-500/40 border-pink-300' : 'bg-white/5 border-white/10 hover:border-pink-400/50'}`}>{i + 1} {p.nazwa}</button>
-                        ))}
-                    </div>
+                <div className="space-y-1">
+                    <div className="text-[10px] text-slate-500 font-mono">klawiatura komputera: A W S E D F T G Y H U J K, Z/X oktawa ({oktawaPc})</div>
+                    <PadyPanel silnik={daj} uderzenia={pady} bank={bank} setBank={setBank} bankB={mapa.pady.length > 8}
+                        onUderz={(i) => pad(i, 100, silnik.current?.ctx.currentTime ?? 0)} onZestaw={(z) => { zestawPadowR.current = z; }} />
                 </div>
             </div>
 
