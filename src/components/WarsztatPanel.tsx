@@ -20,6 +20,7 @@
 import React, { useEffect, useState } from 'react';
 import { Wrench, Loader2, Play, Square, RefreshCw, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import MasterPanel from './MasterPanel';
 
 const BRIDGE = 'http://127.0.0.1:3001';
 
@@ -168,6 +169,8 @@ export const WarsztatPanel: React.FC<{ startPlik?: string | null; startTags?: st
                     ))}
                 </div>
             </div>
+
+            <MasterPanel utwory={utwory} startPlik={plik} />
         </div>
     );
 };
