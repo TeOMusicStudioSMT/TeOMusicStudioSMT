@@ -19,12 +19,20 @@ import { oczyscZestaw } from '../jam/pady';
 
 const MOST = 'http://127.0.0.1:3001';
 interface Jam { nazwa: string; kiedy: string; bpm: number; tonacja: string | null; audio: string; midi: string; url: string; urlMidi: string | null; zestawPadow?: string | null }
+/** 🎚️ Produkcja w SoundCraft (most: services/ProdukcjaSoundcraft.js). */
+interface Produkcja {
+    plik: string; sesja: string; stemy: string[]; lufs: number; lufsPrzed: number; truePeak: number; wzmocnienie: number; sekundy: number;
+    miks: string; miksZrodlo: 'suweren' | 'model' | 'plan'; komentarz: string; uwaga: string | null; probki: { pad: number; nuty: number[] }[];
+    soundcraft: string | null; sekundyLiczenia: number; zestawPadow: string | null;
+}
+interface StanSoundcraft { dostepny: boolean; powod?: string; wersja?: string; okno?: boolean; miksy?: Record<string, { nazwa: string; opis: string }> }
 interface Aranz {
     id: string; utworzono: string; stan: 'propozycja' | 'przyjety' | 'odrzucony'; jam: string | null; model: string | null; poprawiony: boolean;
     analiza: { bpm: number; tonacja: string; motywy: { nr: number; takty: number; nut: number; melodia: string }[] };
     plan: PlanUtworu & { takty: number }; demo: { mp3: string; mid: string } | null;
     brzmienie: { stan: 'liczy' | 'gotowe' | 'blad'; sila: number; plik: string | null; blad: string | null; sekundy?: number } | null;
     demoUrl: string | null; utworUrl: string | null; osie?: { plik: string; os: string }[]; pominieteInstrumenty?: number;
+    produkcja?: Produkcja | null; produkcjaUrl?: string | null;
 }
 
 const kolorSekcji = (t: string) => SEKCJE_UTWORU.find((s) => s.id === t)?.kolor ?? '#64748b';
@@ -75,6 +83,9 @@ export const AranzJoannyPanel: React.FC<{ odswiezenie?: string | null }> = ({ od
     const [wybrany, setWybrany] = useState<string | null>(null);
     const [edycja, setEdycja] = useState<string | null>(null);
     const [sila, setSila] = useState(0.45);
+    const [soundcraft, setSoundcraft] = useState<StanSoundcraft | null>(null);
+    const [miks, setMiks] = useState('joanna');
+    useEffect(() => { most<{ soundcraft: StanSoundcraft }>('/api/aranz/soundcraft').then((d) => setSoundcraft(d.soundcraft)).catch(() => setSoundcraft(null)); }, []);
     const [analiza, setAnaliza] = useState<Analiza | null>(null);
     const graj = useRef<HTMLAudioElement | null>(null);
 
@@ -142,6 +153,19 @@ export const AranzJoannyPanel: React.FC<{ odswiezenie?: string | null }> = ({ od
         } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
         finally { setPraca(null); }
     };
+    /** 🎚️ Produkcja: miks z listy (albo Joanna wybiera), −14 LUFS, stemy, sesja SoundCraft. */
+    const produkuj = async () => {
+        if (!a) return;
+        setPraca('🎚️ SoundCraft produkuje (miks, głośność, stemy)…');
+        try {
+            await most(`/api/aranz/${a.id}/produkcja`, { method: 'POST', body: JSON.stringify({ miks, uwagi }) });
+            toast.success('Wyprodukowane w SoundCraft — w bibliotece.');
+            await odswiez();
+        } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+        finally { setPraca(null); }
+    };
+    const otworzSesje = async () => { if (!a) return; try { await most(`/api/aranz/${a.id}/otworz-sesje`, { method: 'POST' }); toast.success('Sesja otwiera się w oknie SoundCraft.'); } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); } };
+
     const brzmienie = async () => {
         if (!a) return;
         if (!confirm(`Pełne brzmienie liczy ACE-Step 1.5 w ComfyUI na karcie graficznej (6 GB): głos Katedry i Ollama oddadzą kartę, ComfyUI obudzi się sam (do 2 min), utwór ${a.plan.takty} taktów to kilka minut liczenia. Siła ${sila} — im mniej, tym więcej melodii z demo zostaje. Zlecić?`)) return;
@@ -212,6 +236,34 @@ export const AranzJoannyPanel: React.FC<{ odswiezenie?: string | null }> = ({ od
                             ACE-Step (siła {a.brzmienie.sila}): {a.brzmienie.stan === 'liczy' ? '⏳ liczy w ComfyUI…' : a.brzmienie.stan === 'blad' ? `błąd — ${a.brzmienie.blad}` : `✓ ${a.brzmienie.plik}${a.brzmienie.sekundy ? ` (${a.brzmienie.sekundy} s)` : ''}`}
                         </div>}
                         {a.utworUrl && <audio controls className="w-full h-8" src={`${MOST}${a.utworUrl}`} />}
+                        <div className="border-t border-white/10 pt-2 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <b className="text-amber-200">🎚️ Produkcja (SoundCraft)</b>
+                                {soundcraft?.dostepny
+                                    ? <span className="font-mono text-[10px] text-slate-500">{soundcraft.wersja} · lokalnie, bez karty graficznej</span>
+                                    : <span className="text-[10px] text-amber-300">{soundcraft?.powod ?? 'most nie zna jeszcze /api/aranz/soundcraft (restart mostu)'}</span>}
+                            </div>
+                            {soundcraft?.dostepny && <div className="flex flex-wrap items-center gap-2">
+                                <select value={miks} onChange={(e) => setMiks(e.target.value)} className="bg-black/60 border border-white/10 rounded px-1 py-0.5 font-mono text-[10px]">
+                                    <option value="joanna">🕊️ Joanna wybiera miks</option>
+                                    {Object.entries(soundcraft.miksy ?? {}).map(([id, m]) => <option key={id} value={id}>{m.nazwa} — {m.opis}</option>)}
+                                </select>
+                                <button disabled={!!praca || !a.demo} onClick={() => void produkuj()} className="px-3 py-1.5 rounded border border-amber-400/50 text-amber-200 disabled:opacity-40" title={a.demo ? '' : 'najpierw ▶ demo'}>🎚️ Wyprodukuj</button>
+                                {a.produkcja && soundcraft.okno && <button onClick={() => void otworzSesje()} className="px-2 py-1 rounded border border-white/15">🖥️ otwórz sesję w SoundCraft</button>}
+                            </div>}
+                            {a.produkcja && <>
+                                <div className="font-mono text-[10px] text-amber-100">
+                                    miks {soundcraft?.miksy?.[a.produkcja.miks]?.nazwa ?? a.produkcja.miks} ({a.produkcja.miksZrodlo === 'model' ? 'wybrała Joanna' : a.produkcja.miksZrodlo === 'suweren' ? 'Twój wybór' : 'kod z planu'})
+                                    {' · '}{a.produkcja.lufsPrzed} → {a.produkcja.lufs} LUFS · true peak {a.produkcja.truePeak} dBTP · {a.produkcja.sekundy} s · {a.produkcja.stemy.length} stemów
+                                    {a.produkcja.probki.length ? ` · perkusja z próbek padów ${a.produkcja.probki.map((p) => p.pad).join(', ')}` : ' · perkusja syntezowana'}
+                                    {' · '}{a.produkcja.sekundyLiczenia} s liczenia
+                                </div>
+                                {a.produkcja.komentarz && <div className="text-[11px] text-pink-100">🕊️ „{a.produkcja.komentarz}”</div>}
+                                {a.produkcja.uwaga && <div className="text-[10px] text-amber-300">{a.produkcja.uwaga}</div>}
+                                {a.produkcjaUrl && <audio controls className="w-full h-8" src={`${MOST}${a.produkcjaUrl}`} />}
+                                <div className="font-mono text-[10px] text-slate-500 truncate" title={a.produkcja.stemy.join(', ')}>stemy: {a.produkcja.stemy.map((s) => s.split('/').pop()).join(' · ')}</div>
+                            </>}
+                        </div>
                     </>}
                 </div>
             </div>
