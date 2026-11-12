@@ -244,6 +244,111 @@ function nieudane(
 }
 
 /**
+ * 🎵🔌 Suno/Udio Bridge v5 → Suno MCP mostu Katedry (services/SunoMcp.js, konto Suno Suwerena).
+ * Bez czatu z modelem: panel woła wprost narzędzia `workspaces-list|create`, `audio-create`, `audio-wait`,
+ * `audio-download` przez `POST /api/suno/wywolaj`. Zgoda na kredyty = zgoda domyślna mostu (Suweren 2026-11-12).
+ * Udio NIE jest podłączone — nazwa kafelka została, silnik to Suno.
+ */
+type WynikSuno = { isError?: boolean; structuredContent?: unknown; content?: { type: string; text?: string }[] };
+type OdpSuno = { success?: boolean; message?: string; kod?: string | null; wynik?: WynikSuno; utwory?: { id: string; plik?: string; blad?: string }[] };
+
+async function wolajSuno(narzedzie: string, argumenty: Record<string, unknown>, extra: Record<string, unknown> = {}): Promise<OdpSuno> {
+  const r = await fetch(`${BRIDGE_URL}/api/suno/wywolaj`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ narzedzie, argumenty, ...extra }),
+  });
+  const j = (await r.json().catch(() => null)) as OdpSuno | null;
+  if (!j) throw new Error(`Most odpowiedział HTTP ${r.status} bez treści.`);
+  if (j.success === false) throw new Error(j.message || `HTTP ${r.status}`);
+  if (j.wynik?.isError) throw new Error((j.wynik.content ?? []).map((c) => c.text).filter(Boolean).join(' ').slice(0, 300) || `Suno: błąd narzędzia ${narzedzie}`);
+  return j;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function daneSuno(w?: WynikSuno): Record<string, any> {
+  if (w?.structuredContent && typeof w.structuredContent === 'object') return w.structuredContent as Record<string, unknown>;
+  for (const c of w?.content ?? []) { try { const j = JSON.parse(c.text ?? ''); if (j && typeof j === 'object') return j; } catch { /* zwykły tekst */ } }
+  return {};
+}
+
+async function generujPrzezSuno(params: MusicGenerationRequest, onProgress?: GenerationProgressCallback): Promise<MusicGenerationResult> {
+  const tytul = (params.title || params.style || 'Suno').slice(0, 200);
+  const log = (stage: string, percentage: number, tekst: string) => onProgress?.({ step: 0, totalSteps: 4, stage, percentage, log: tekst });
+  try {
+    log('PRZEGLAD', 2, '🔌 Sprawdzam konto Suno w moście Katedry…');
+    const st = await fetch(`${BRIDGE_URL}/api/suno/stan`).then((r) => r.json()).catch(() => null);
+    if (!st) return nieudane(params, 'Wiesio-Bridge nie odpowiada na 127.0.0.1:3001.', ['Odpal Katedrę.']);
+    if (!st.suno?.polaczone) return nieudane(params, 'Konto Suno nie jest połączone z Katedrą.', [st.suno?.powod || st.suno?.blad || 'Hub → Impresariat → 🎵🔌 Suno → „Połącz z Suno”.']);
+
+    // Workspace „TeO Music Studio” — porządek w bibliotece Suno; nie wyszło = utwór idzie bez niego.
+    let workspaceId: string | undefined;
+    try {
+      const NAZWA_WS = 'TeO Music Studio';
+      const lista = JSON.stringify(daneSuno((await wolajSuno('workspaces-list', {}, { zapisz: false })).wynik));
+      const m = lista.match(new RegExp(`"id":"([^"]+)"[^{}]*"name":"${NAZWA_WS}"|"name":"${NAZWA_WS}"[^{}]*"id":"([^"]+)"`));
+      workspaceId = m?.[1] ?? m?.[2] ?? daneSuno((await wolajSuno('workspaces-create', { name: NAZWA_WS, description: 'Utwory z TeO Music Studio (Katedra OtakOS).' }, { zapisz: false })).wynik).id;
+      if (workspaceId) log('PRZEGLAD', 5, `📁 Workspace Suno „${NAZWA_WS}” gotowy.`);
+    } catch (e) { log('PRZEGLAD', 5, `ℹ️ Workspace Suno pominięty: ${e instanceof Error ? e.message : e}`); }
+
+    const tekst = (params.lyrics ?? '').trim();
+    const styl = [params.style, params.bpm ? `${Math.round(params.bpm)} bpm` : '', params.keySignature].filter(Boolean).join(', ').slice(0, 1000);
+    const argumenty: Record<string, unknown> = tekst
+      ? { lyrics: tekst.slice(0, 5000), style: styl, title: tytul }                                            // tryb własny
+      : { description: [params.prompt, styl].filter(Boolean).join('. ').slice(0, 3000), title: tytul };          // tryb prosty
+    if (params.durationSeconds >= 15) argumenty.duration = Math.min(360, Math.round(params.durationSeconds));
+    if (workspaceId) argumenty.workspace_id = workspaceId;
+
+    log('W_KOLEJCE', 10, `🎵 Suno audio-create (${tekst ? 'własny tekst + styl' : 'opis'}) — jedno wywołanie = 2 wersje z kredytów konta…`);
+    const d = daneSuno((await wolajSuno('audio-create', argumenty, { zapisz: false })).wynik);
+    const ids: string[] = [...(Array.isArray(d.clip_ids) ? d.clip_ids : []), ...(typeof d.id === 'string' ? [d.id] : [])].filter((x, i, a) => typeof x === 'string' && a.indexOf(x) === i);
+    if (!ids.length) return nieudane(params, 'Suno nie oddał id utworu.', [JSON.stringify(d).slice(0, 300)]);
+
+    const pliki = new Map<string, string>();
+    const stany = new Map<string, string>(ids.map((id) => [id, 'queued']));
+    const skonczone = () => ids.every((id) => ['complete', 'error'].includes(stany.get(id) ?? ''));
+    for (let i = 0; i < 20 && !skonczone(); i++) {
+      log('CZEKAM', Math.min(85, 15 + i * 4), `⏳ Suno liczy (${[...stany.values()].join(', ')})…`);
+      const r = await wolajSuno('audio-wait', { ids, until: 'complete' });
+      const w = daneSuno(r.wynik);
+      for (const c of (Array.isArray(w.clips) && w.clips.length ? w.clips : w.id ? [w] : [])) if (c?.id) stany.set(String(c.id), String(c.status ?? stany.get(String(c.id))));
+      for (const u of r.utwory ?? []) if (u.plik) pliki.set(u.id, u.plik);
+    }
+    const gotowe = ids.filter((id) => stany.get(id) === 'complete');
+    if (!gotowe.length) return nieudane(params, skonczone() ? 'Suno nie zrobił utworu (błąd po stronie Suno).' : 'Suno wciąż liczy — utwór pojawi się w bibliotece Suno; pobierz go potem z Impresariatu (🎵🔌 Suno → audio-download).', [`id: ${ids.join(', ')}`]);
+
+    for (const id of gotowe.filter((x) => !pliki.has(x))) {
+      try {
+        log('WYRENDEROWANE', 88, `⬇️ Suno audio-download ${id.slice(0, 8)}…`);
+        let r = await wolajSuno('audio-download', { id, format: 'mp3' }, { tytul });
+        for (let i = 0; i < 4 && !r.utwory?.some((u) => u.plik); i++) {
+          const s = daneSuno(r.wynik).status;
+          if (s === 'requires_credit') log('WYRENDEROWANE', 90, '💳 Pobranie wymaga kredytu pobrania Suno — potwierdzam (zgoda domyślna Suwerena).');
+          else if (s !== 'processing') break;
+          r = await wolajSuno('audio-download', { id, format: 'mp3', ...(s === 'requires_credit' ? { confirm: true } : {}) }, { tytul });
+        }
+        const u = r.utwory?.find((x) => x.plik);
+        if (u?.plik) pliki.set(id, u.plik);
+        else log('ZAPIS_NIEUDANY', 90, `⚠️ Wersja ${id.slice(0, 8)} nie pobrana: ${r.utwory?.[0]?.blad ?? daneSuno(r.wynik).status ?? 'brak adresu'}`);
+      } catch (e) { log('ZAPIS_NIEUDANY', 90, `⚠️ Wersja ${id.slice(0, 8)} nie pobrana: ${e instanceof Error ? e.message : e}`); }
+    }
+    const plik = gotowe.map((id) => pliki.get(id)).find(Boolean);
+    if (!plik) return nieudane(params, 'Utwór jest w Suno, ale nie dał się pobrać do biblioteki Katedry.', [`id: ${gotowe.join(', ')}`]);
+    for (const p of pliki.values()) log('ZAPISANE', 96, `💾 _OtakOs_Muzyka/${p}`);
+
+    await reportBreathEconomyReward(tytul, 100);
+    log('DONE', 100, `✨ Gotowe: "${tytul}" — wersji w bibliotece: ${pliki.size} (+100 GRV)`);
+    return {
+      success: true,
+      audioUrl: `${BRIDGE_URL}/music/${plik.split('/').map(encodeURIComponent).join('/')}`,
+      title: tytul, duration: params.durationSeconds, savedPath: `_OtakOs_Muzyka/${plik}`,
+      engine: params.engine, modelVariant: params.modelVariant, grvEarned: 100,
+    };
+  } catch (e) {
+    return nieudane(params, `Suno: ${e instanceof Error ? e.message : String(e)}`, ['Stan konta i narzędzi: Hub → Impresariat → 🎵🔌 Suno.']);
+  }
+}
+
+/**
  * Realna generacja. Kolejkuje graf w ComfyUI przez most, odpytuje o postęp,
  * a gotowy plik zapisuje do _OtakOs_Muzyka. Każdy zwrócony `savedPath` odpowiada
  * plikowi, który faktycznie istnieje na dysku.
@@ -255,16 +360,7 @@ export async function generateMiniMaxMusic(
   const targetFolder = params.targetFolder || DEFAULT_TARGET_FOLDER;
   const trackTitle = params.title || `${params.style.slice(0, 20)} - MiniMax ${params.modelVariant.toUpperCase()}`;
 
-  if (params.engine === 'suno-udio-bridge') {
-    return nieudane(
-      params,
-      'Most Suno/Udio nie jest zaimplementowany.',
-      [
-        'Ten silnik był atrapą w poprzedniej wersji — nie ma po stronie mostu żadnego endpointu Suno/Udio.',
-        'Użyj MiniMax-Music-3 (lokalnie, suwerennie) albo syntezatora 432Hz.',
-      ]
-    );
-  }
+  if (params.engine === 'suno-udio-bridge') return generujPrzezSuno(params, onProgress);
 
   onProgress?.({
     step: 0, totalSteps: 1, stage: 'PRZEGLAD',

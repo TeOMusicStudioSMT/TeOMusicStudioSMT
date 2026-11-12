@@ -49,12 +49,12 @@ const PRESET_VIBES = [
  * Silniki w kolejności użyteczności na tym sprzęcie.
  * ACE pierwszy, bo zmierzone: 10 s audio w 28 s liczenia. MiniMax na tej samej
  * maszynie to ~6h50m na minutę (faza autoregresywna) — stąd ostrzeżenie w opisie.
- * Suno/Udio zostaje widoczny, ale oznaczony wprost jako niezaimplementowany,
- * bo po stronie mostu nie ma żadnego endpointu — kliknięcie kończy się odmową.
+ * Suno/Udio Bridge v5 = Suno MCP mostu Katedry (konto Suno Suwerena, services/SunoMcp.js): audio-create →
+ * audio-wait → audio-download, bez czatu z modelem. Udio nie jest podłączone.
  */
 const SILNIKI: {
   id: MusicEngine; nazwa: string; znacznik: string; opis: string;
-  kolor: string; hex: string; rodzina?: 'ace' | 'minimax' | 'yue2'; niedostepny?: boolean;
+  kolor: string; hex: string; rodzina?: 'ace' | 'minimax' | 'yue2'; niedostepny?: boolean; suno?: boolean;
 }[] = [
   { id: 'ace-step', nazwa: 'ACE-Step 1.5', znacznik: 'TURBO', hex: '#34d399', kolor: 'emerald',
     rodzina: 'ace', opis: '8 kroków. BPM i tonacja wprost do modelu, teksty po polsku.' },
@@ -65,7 +65,7 @@ const SILNIKI: {
   { id: 'synth-432', nazwa: 'Syntezator 432Hz', znacznik: 'DSP', hex: '#22d3ee', kolor: 'cyan',
     opis: 'Czyste fale harmoniczne, liczone w przeglądarce.' },
   { id: 'suno-udio-bridge', nazwa: 'Suno/Udio Bridge', znacznik: 'v5', hex: '#f472b6', kolor: 'pink',
-    opis: 'Most chmurowy — brak implementacji po stronie mostu.', niedostepny: true },
+    opis: 'Suno przez most Katedry (Suno MCP, konto Suwerena). Chmura i kredyty Suno; plik ląduje w bibliotece.', suno: true },
 ];
 
 /** Parametry z oficjalnych szablonów ComfyUI — patrz ACE_WARIANT w serwisie. */
@@ -83,6 +83,54 @@ const KEYS = [
   'G Dorian',
   '528Hz Solfeggio Harmonic',
 ];
+
+/** 🎵🔌 Stan konta Suno w moście + 🎛️ zlecenie kampanii Jasonowi (POST /api/jason/wykonaj-kampanie) — pod kafelkiem Suno. */
+type StanSuno = { polaczone: boolean; powod?: string; blad?: string | null; zgodaDomyslna?: boolean } | null;
+const MOST_KATEDRY = 'http://127.0.0.1:3001';
+
+const SunoPasek: React.FC<{ stan: StanSuno | undefined }> = ({ stan }) => {
+  const [trwa, setTrwa] = useState(false);
+  const [info, setInfo] = useState('');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const opis = (k: any): string => !k ? '' : k.stan === 'do_akceptacji'
+    ? `✓ Pakiet czeka w Izbie Akceptacji — wersji: ${(k.klipy || []).filter((c: { plik?: string }) => c.plik).length}${k.okladka?.plik ? ', z okładką' : k.okladka?.blad ? ` · bez okładki: ${k.okladka.blad}` : ''}.`
+    : k.stan === 'blad' ? `⚠ ${k.blad}`
+    : k.stan === 'robi' ? `Jason pracuje: ${Object.entries(k.etapy || {}).map(([n, e]) => `${n} ${(e as { stan: string }).stan}`).join(' → ') || 'start'}…`
+    : `Kampania ${k.stan}.`;
+  const zlec = async () => {
+    setTrwa(true); setInfo('Zlecam Jasonowi…');
+    try {
+      const r = await fetch(`${MOST_KATEDRY}/api/jason/wykonaj-kampanie`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stacja: 1, skad: 'music-studio' }) });
+      const d = await r.json().catch(() => null);
+      let k = d?.kampania;
+      if (!k) throw new Error(d?.message || `HTTP ${r.status}`);
+      setInfo(d.success ? opis(k) : `${d.message} ${opis(k)}`);
+      for (let i = 0; i < 120 && k.stan === 'robi'; i++) {
+        await new Promise((ok) => setTimeout(ok, 10000));
+        const s = await fetch(`${MOST_KATEDRY}/api/jason/kampanie/${k.id}`).then((x) => x.json()).catch(() => null);
+        if (s?.kampania) { k = s.kampania; setInfo(opis(k)); }
+      }
+    } catch (e) { setInfo(`⚠ Nie zlecono: ${e instanceof Error ? e.message : e}`); }
+    setTrwa(false);
+  };
+  return (
+    <div className="mb-2.5 rounded-xl border border-pink-500/40 bg-pink-950/20 p-2.5 text-[11px] font-mono text-pink-100">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span>
+          {stan === undefined ? '🔌 Sprawdzam Suno…' : stan === null ? '⚠ Most Katedry nie odpowiada.' : stan.polaczone
+            ? `🎵 Suno połączone — „Generuj” woła audio-create (2 wersje, kredyty konta${stan.zgodaDomyslna === false ? '; zgoda domyślna WYŁĄCZONA — most odmówi' : ''}) i zapisuje do _OtakOs_Muzyka/Suno MCP. Udio niepodłączone.`
+            : `⚠ ${stan.powod || stan.blad || 'Konto Suno niepołączone'} (Hub → Impresariat → 🎵🔌 Suno)`}
+        </span>
+        <button onClick={zlec} disabled={trwa || !stan?.polaczone}
+          title="Jason sam: Suno → pobranie → okładka Palety → pakiet do Izby Akceptacji (StoL)"
+          className="shrink-0 px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white font-bold disabled:opacity-50">
+          {trwa ? 'JASON PRACUJE…' : '🎛️ Jason: Stacja 1 — Velvet Booth for Two'}
+        </button>
+      </div>
+      {info && <div className="mt-1 text-pink-200/90">{info}</div>}
+    </div>
+  );
+};
 
 export const AiSessionPanel: React.FC<AiSessionPanelProps> = ({
   teleportParams,
@@ -114,6 +162,13 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
   // --- Silnik i Wariant ---
   // ACE domyślnie — to on realnie liczy na tym sprzęcie (8 kroków vs faza AR MiniMaxa).
   const [engine, setEngine] = useState<MusicEngine>('ace-step');
+  // 🎵🔌 stan konta Suno w moście (undefined = sprawdzam, null = most milczy) — odświeżany przy wyborze kafelka Suno
+  const [sunoStan, setSunoStan] = useState<StanSuno | undefined>(undefined);
+  useEffect(() => {
+    let zywy = true;
+    fetch(`${MOST_KATEDRY}/api/suno/stan`).then((r) => r.json()).then((d) => { if (zywy) setSunoStan(d?.suno ?? null); }).catch(() => { if (zywy) setSunoStan(null); });
+    return () => { zywy = false; };
+  }, [engine]);
   const [aceVariant, setAceVariant] = useState<AceModelVariant>('turbo');
   /** Które rodziny wag są realnie gotowe — z mostu, nie z założenia. */
   const [rodzinyGotowe, setRodzinyGotowe] = useState<Record<string, boolean> | null>(null);
@@ -296,7 +351,7 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
         return;
       }
 
-      // Generacja MiniMax-Music-3 (lub Suno/Udio Bridge)
+      // Generacja przez most: ACE / YuE2 / MiniMax (ComfyUI) albo Suno (Suno MCP)
       const res = await generateMiniMaxMusic(
         {
           prompt,
@@ -311,7 +366,9 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
           cfgScale,
           steps: diffusionSteps,
           targetFolder: '_OtakOs_Muzyka',
-          title: engine === 'ace-step'
+          title: engine === 'suno-udio-bridge'
+            ? (style.slice(0, 60) || 'Suno')
+            : engine === 'ace-step'
             ? `${style.slice(0, 15)} - ACE_${aceVariant.toUpperCase()}`
             : engine === 'yue2'
               ? `${style.slice(0, 15)} - YuE2_INT8`
@@ -653,6 +710,7 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
               <span className="text-[10px] text-slate-500 font-mono">DiT Tensor Architecture</span>
             </div>
 
+            {engine === 'suno-udio-bridge' && <SunoPasek stan={sunoStan} />}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
               {SILNIKI.map((s) => {
                 const wybrany = engine === s.id;
@@ -682,6 +740,10 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
                     <div className="mt-1.5 flex items-center gap-1.5 text-[9px] font-mono">
                       {s.niedostepny ? (
                         <span className="text-amber-400/90">niezaimplementowany</span>
+                      ) : s.suno ? (
+                        sunoStan === undefined ? <span className="text-slate-600">—</span>
+                          : sunoStan?.polaczone ? <><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /><span className="text-emerald-400">Suno połączone</span></>
+                          : <><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /><span className="text-amber-400">{sunoStan === null ? 'most milczy' : 'Suno niepołączone'}</span></>
                       ) : stan === undefined ? (
                         <span className="text-slate-600">—</span>
                       ) : stan ? (
