@@ -39,6 +39,9 @@ export interface MusicGenerationRequest {
   cfgScale?: number;
   steps?: number;
   targetFolder?: string;
+  /** 🎤 Suno: persona głosowa z My Voices (`voices-list`) — id i nazwa do logu. */
+  voiceId?: string;
+  voiceName?: string;
 }
 
 export interface GenerationProgressCallback {
@@ -65,7 +68,11 @@ export interface MusicGenerationResult {
   error?: string;
   /** Konkretne kroki do odblokowania silnika — pokazywane w logach panelu. */
   hints?: string[];
+  /** 🎧 Suno: wersje gotowe do odsłuchu (nic nie pobrane) — pobiera się jedną wskazaną. */
+  sunoWersje?: WersjaSuno[];
 }
+
+export interface WersjaSuno { id: string; tytul: string; sekundy: number | null; odsluch: string; status: string }
 
 export interface BreathEconomyRewardResult {
   success: boolean;
@@ -245,8 +252,10 @@ function nieudane(
 
 /**
  * 🎵🔌 Suno/Udio Bridge v5 → Suno MCP mostu Katedry (services/SunoMcp.js, konto Suno Suwerena).
- * Bez czatu z modelem: panel woła wprost narzędzia `workspaces-list|create`, `audio-create`, `audio-wait`,
- * `audio-download` przez `POST /api/suno/wywolaj`. Zgoda na kredyty = zgoda domyślna mostu (Suweren 2026-11-12).
+ * Bez czatu z modelem: panel woła wprost narzędzia `workspaces-list|create`, `voices-list`, `audio-create`, `audio-wait`
+ * przez `POST /api/suno/wywolaj`. Zgoda na kredyty = zgoda domyślna mostu (Suweren 2026-11-12).
+ * POBRANIA: „Generuj” NICZEGO nie pobiera (limit pobrań komercyjnych planu Suno, `rate_limited` przy dwóch naraz) —
+ * wynik niesie `sunoWersje` do odsłuchu, a `pobierzWersjeSuno` ściąga jedną wskazaną wersję.
  * Udio NIE jest podłączone — nazwa kafelka została, silnik to Suno.
  */
 type WynikSuno = { isError?: boolean; structuredContent?: unknown; content?: { type: string; text?: string }[] };
@@ -273,7 +282,7 @@ function daneSuno(w?: WynikSuno): Record<string, any> {
 
 async function generujPrzezSuno(params: MusicGenerationRequest, onProgress?: GenerationProgressCallback): Promise<MusicGenerationResult> {
   const tytul = (params.title || params.style || 'Suno').slice(0, 200);
-  const log = (stage: string, percentage: number, tekst: string) => onProgress?.({ step: 0, totalSteps: 4, stage, percentage, log: tekst });
+  const log = (stage: string, percentage: number, tekst: string) => onProgress?.({ step: 0, totalSteps: 3, stage, percentage, log: tekst });
   try {
     log('PRZEGLAD', 2, '🔌 Sprawdzam konto Suno w moście Katedry…');
     const st = await fetch(`${BRIDGE_URL}/api/suno/stan`).then((r) => r.json()).catch(() => null);
@@ -297,55 +306,72 @@ async function generujPrzezSuno(params: MusicGenerationRequest, onProgress?: Gen
       : { description: [params.prompt, styl].filter(Boolean).join('. ').slice(0, 3000), title: tytul };          // tryb prosty
     if (params.durationSeconds >= 15) argumenty.duration = Math.min(360, Math.round(params.durationSeconds));
     if (workspaceId) argumenty.workspace_id = workspaceId;
+    if (params.voiceId) { argumenty.voice_id = params.voiceId; log('PRZEGLAD', 8, `🎤 Persona głosowa: ${params.voiceName || params.voiceId}`); }
 
     log('W_KOLEJCE', 10, `🎵 Suno audio-create (${tekst ? 'własny tekst + styl' : 'opis'}) — jedno wywołanie = 2 wersje z kredytów konta…`);
     const d = daneSuno((await wolajSuno('audio-create', argumenty, { zapisz: false })).wynik);
     const ids: string[] = [...(Array.isArray(d.clip_ids) ? d.clip_ids : []), ...(typeof d.id === 'string' ? [d.id] : [])].filter((x, i, a) => typeof x === 'string' && a.indexOf(x) === i);
     if (!ids.length) return nieudane(params, 'Suno nie oddał id utworu.', [JSON.stringify(d).slice(0, 300)]);
 
-    const pliki = new Map<string, string>();
-    const stany = new Map<string, string>(ids.map((id) => [id, 'queued']));
-    const skonczone = () => ids.every((id) => ['complete', 'error'].includes(stany.get(id) ?? ''));
+    // Czekanie BEZ zapisu (zapisz: false): plan Suno ma miesięczny limit pobrań z prawami komercyjnymi — nic nie schodzi samo.
+    const wersje = new Map<string, WersjaSuno>(ids.map((id) => [id, { id, tytul, sekundy: null, odsluch: `https://suno.com/song/${id}`, status: 'queued' }]));
+    const skonczone = () => ids.every((id) => ['complete', 'error'].includes(wersje.get(id)!.status));
     for (let i = 0; i < 20 && !skonczone(); i++) {
-      log('CZEKAM', Math.min(85, 15 + i * 4), `⏳ Suno liczy (${[...stany.values()].join(', ')})…`);
-      const r = await wolajSuno('audio-wait', { ids, until: 'complete' });
-      const w = daneSuno(r.wynik);
-      for (const c of (Array.isArray(w.clips) && w.clips.length ? w.clips : w.id ? [w] : [])) if (c?.id) stany.set(String(c.id), String(c.status ?? stany.get(String(c.id))));
-      for (const u of r.utwory ?? []) if (u.plik) pliki.set(u.id, u.plik);
+      log('CZEKAM', Math.min(90, 15 + i * 4), `⏳ Suno liczy (${[...wersje.values()].map((w) => w.status).join(', ')})…`);
+      const w = daneSuno((await wolajSuno('audio-wait', { ids, until: 'complete' }, { zapisz: false })).wynik);
+      for (const c of (Array.isArray(w.clips) && w.clips.length ? w.clips : w.id ? [w] : [])) {
+        const x = c?.id ? wersje.get(String(c.id)) : undefined;
+        if (!x) continue;
+        x.status = String(c.status ?? x.status);
+        if (c.title) x.tytul = String(c.title);
+        const s = Number(c.metadata?.duration ?? c.duration);
+        if (s > 0) x.sekundy = Math.round(s);
+        if (typeof c.song_url === 'string' && c.song_url.startsWith('https://')) x.odsluch = c.song_url;
+      }
     }
-    const gotowe = ids.filter((id) => stany.get(id) === 'complete');
-    if (!gotowe.length) return nieudane(params, skonczone() ? 'Suno nie zrobił utworu (błąd po stronie Suno).' : 'Suno wciąż liczy — utwór pojawi się w bibliotece Suno; pobierz go potem z Impresariatu (🎵🔌 Suno → audio-download).', [`id: ${ids.join(', ')}`]);
+    const gotowe = ids.map((id) => wersje.get(id)!).filter((w) => w.status === 'complete');
+    if (!gotowe.length) return nieudane(params, skonczone() ? 'Suno nie zrobił utworu (błąd po stronie Suno).' : 'Suno wciąż liczy — utwór pojawi się w bibliotece Suno (workspace „TeO Music Studio”).', [`id: ${ids.join(', ')}`]);
 
-    for (const id of gotowe.filter((x) => !pliki.has(x))) {
-      try {
-        log('WYRENDEROWANE', 88, `⬇️ Suno audio-download ${id.slice(0, 8)}…`);
-        let r = await wolajSuno('audio-download', { id, format: 'mp3' }, { tytul });
-        for (let i = 0; i < 4 && !r.utwory?.some((u) => u.plik); i++) {
-          const s = daneSuno(r.wynik).status;
-          if (s === 'requires_credit') log('WYRENDEROWANE', 90, '💳 Pobranie wymaga kredytu pobrania Suno — potwierdzam (zgoda domyślna Suwerena).');
-          else if (s !== 'processing') break;
-          r = await wolajSuno('audio-download', { id, format: 'mp3', ...(s === 'requires_credit' ? { confirm: true } : {}) }, { tytul });
-        }
-        const u = r.utwory?.find((x) => x.plik);
-        if (u?.plik) pliki.set(id, u.plik);
-        else log('ZAPIS_NIEUDANY', 90, `⚠️ Wersja ${id.slice(0, 8)} nie pobrana: ${r.utwory?.[0]?.blad ?? daneSuno(r.wynik).status ?? 'brak adresu'}`);
-      } catch (e) { log('ZAPIS_NIEUDANY', 90, `⚠️ Wersja ${id.slice(0, 8)} nie pobrana: ${e instanceof Error ? e.message : e}`); }
-    }
-    const plik = gotowe.map((id) => pliki.get(id)).find(Boolean);
-    if (!plik) return nieudane(params, 'Utwór jest w Suno, ale nie dał się pobrać do biblioteki Katedry.', [`id: ${gotowe.join(', ')}`]);
-    for (const p of pliki.values()) log('ZAPISANE', 96, `💾 _OtakOs_Muzyka/${p}`);
-
+    for (const [i, w] of gotowe.entries()) log('WYRENDEROWANE', 96, `🎧 Wersja ${i + 1} (${w.sekundy ? `${Math.floor(w.sekundy / 60)}:${String(w.sekundy % 60).padStart(2, '0')}` : '?:??'}) do odsłuchu: ${w.odsluch}`);
     await reportBreathEconomyReward(tytul, 100);
-    log('DONE', 100, `✨ Gotowe: "${tytul}" — wersji w bibliotece: ${pliki.size} (+100 GRV)`);
+    log('DONE', 100, `✨ Gotowe w Suno: "${tytul}" — wersji: ${gotowe.length}. NIC nie pobrano: odsłuchaj i pobierz jedną przyciskiem pod kafelkiem Suno (+100 GRV)`);
     return {
-      success: true,
-      audioUrl: `${BRIDGE_URL}/music/${plik.split('/').map(encodeURIComponent).join('/')}`,
-      title: tytul, duration: params.durationSeconds, savedPath: `_OtakOs_Muzyka/${plik}`,
-      engine: params.engine, modelVariant: params.modelVariant, grvEarned: 100,
+      success: true, audioUrl: '', title: tytul, duration: gotowe[0].sekundy ?? params.durationSeconds, savedPath: '',
+      engine: params.engine, modelVariant: params.modelVariant, grvEarned: 100, sunoWersje: gotowe,
     };
   } catch (e) {
     return nieudane(params, `Suno: ${e instanceof Error ? e.message : String(e)}`, ['Stan konta i narzędzi: Hub → Impresariat → 🎵🔌 Suno.']);
   }
+}
+
+/** ⬇ Pobranie JEDNEJ wersji do _OtakOs_Muzyka/Suno MCP (klik Suwerena = zgoda na 1 pobranie z limitu). `rate_limited` → przerwa i ponowienie. */
+export async function pobierzWersjeSuno(id: string, tytul: string): Promise<{ plik: string; audioUrl: string }> {
+  let confirm = false;
+  for (let i = 0; i < 8; i++) {
+    let r: OdpSuno;
+    try { r = await wolajSuno('audio-download', { id, format: 'mp3', ...(confirm ? { confirm: true } : {}) }, { tytul }); }
+    catch (e) {
+      if (i < 3 && /rate_limited/.test(String(e instanceof Error ? e.message : e))) { await new Promise((ok) => setTimeout(ok, 3000)); continue; }
+      throw e;
+    }
+    const u = r.utwory?.find((x) => x.plik);
+    if (u?.plik) return { plik: u.plik, audioUrl: `${BRIDGE_URL}/music/${u.plik.split('/').map(encodeURIComponent).join('/')}` };
+    const s = daneSuno(r.wynik).status;
+    if (s === 'requires_credit' && !confirm) { confirm = true; continue; }
+    if (s === 'processing') { await new Promise((ok) => setTimeout(ok, 1500)); continue; }
+    throw new Error(r.utwory?.[0]?.blad ?? `Suno nie oddał pliku (${s ?? 'brak adresu'}).`);
+  }
+  throw new Error('Suno wciąż przygotowuje plik — spróbuj za chwilę.');
+}
+
+/** 🎤 Persony głosowe konta Suno (My Voices + ulubione) przez `voices-list` — tylko odczyt. */
+export async function glosySuno(): Promise<{ id: string; name: string }[]> {
+  const out: { id: string; name: string }[] = [];
+  for (const collection of ['own', 'loved']) {
+    const d = daneSuno((await wolajSuno('voices-list', { collection, limit: 100 }, { zapisz: false })).wynik);
+    for (const g of Array.isArray(d.voices) ? d.voices : []) if (g?.id && !out.some((x) => x.id === g.id)) out.push({ id: String(g.id), name: String(g.name ?? '') });
+  }
+  return out;
 }
 
 /**

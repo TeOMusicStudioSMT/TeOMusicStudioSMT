@@ -9,6 +9,9 @@ import toast from 'react-hot-toast';
 import ModelCatalogPanel from './ModelCatalogPanel';
 import {
   generateMiniMaxMusic,
+  pobierzWersjeSuno,
+  glosySuno,
+  type WersjaSuno,
   generateHarmonic432HzTone,
   reportBreathEconomyReward,
   ACE_WARIANT,
@@ -84,49 +87,124 @@ const KEYS = [
   '528Hz Solfeggio Harmonic',
 ];
 
-/** 🎵🔌 Stan konta Suno w moście + 🎛️ zlecenie kampanii Jasonowi (POST /api/jason/wykonaj-kampanie) — pod kafelkiem Suno. */
+/** 🎵🔌 Pod kafelkiem Suno: stan konta, 🎤 persona głosowa, 🎧 wersje do odsłuchu z pobraniem JEDNEJ, 🎛️ kampania Jasona. */
 type StanSuno = { polaczone: boolean; powod?: string; blad?: string | null; zgodaDomyslna?: boolean } | null;
 const MOST_KATEDRY = 'http://127.0.0.1:3001';
+const czasWersji = (s?: number | null) => (s && s > 0 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '?:??');
+type KlipJasona = { id: string; status: string; sekundy?: number | null; odsluch?: string | null; plik?: string | null; bladPobrania?: string };
+type KampaniaJasona = { id: string; stan: string; blad?: string; klipy: KlipJasona[]; etapy?: Record<string, { stan: string }>; okladka?: { plik?: string; blad?: string } | null; wybrana?: { wersja: number; plik: string }; glos?: { nazwa?: string } | null };
 
-const SunoPasek: React.FC<{ stan: StanSuno | undefined }> = ({ stan }) => {
+const SunoPasek: React.FC<{
+  stan: StanSuno | undefined;
+  glos: string; ustawGlos: (id: string) => void; glosy: { id: string; name: string }[];
+  wersje: WersjaSuno[]; onPobrano: (plik: string, audioUrl: string, tytul: string) => void;
+}> = ({ stan, glos, ustawGlos, glosy, wersje, onPobrano }) => {
   const [trwa, setTrwa] = useState(false);
   const [info, setInfo] = useState('');
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const opis = (k: any): string => !k ? '' : k.stan === 'do_akceptacji'
-    ? `✓ Pakiet czeka w Izbie Akceptacji — wersji: ${(k.klipy || []).filter((c: { plik?: string }) => c.plik).length}${k.okladka?.plik ? ', z okładką' : k.okladka?.blad ? ` · bez okładki: ${k.okladka.blad}` : ''}.`
-    : k.stan === 'blad' ? `⚠ ${k.blad}`
-    : k.stan === 'robi' ? `Jason pracuje: ${Object.entries(k.etapy || {}).map(([n, e]) => `${n} ${(e as { stan: string }).stan}`).join(' → ') || 'start'}…`
-    : `Kampania ${k.stan}.`;
-  const zlec = async () => {
-    setTrwa(true); setInfo('Zlecam Jasonowi…');
-    try {
-      const r = await fetch(`${MOST_KATEDRY}/api/jason/wykonaj-kampanie`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stacja: 1, skad: 'music-studio' }) });
-      const d = await r.json().catch(() => null);
-      let k = d?.kampania;
-      if (!k) throw new Error(d?.message || `HTTP ${r.status}`);
-      setInfo(d.success ? opis(k) : `${d.message} ${opis(k)}`);
-      for (let i = 0; i < 120 && k.stan === 'robi'; i++) {
-        await new Promise((ok) => setTimeout(ok, 10000));
-        const s = await fetch(`${MOST_KATEDRY}/api/jason/kampanie/${k.id}`).then((x) => x.json()).catch(() => null);
-        if (s?.kampania) { k = s.kampania; setInfo(opis(k)); }
-      }
-    } catch (e) { setInfo(`⚠ Nie zlecono: ${e instanceof Error ? e.message : e}`); }
+  const [k, setK] = useState<KampaniaJasona | null>(null);
+  const [pobrane, setPobrane] = useState<Record<string, string>>({});
+
+  const jason = async (sciezka: string, cialo?: unknown) => {
+    const r = await fetch(`${MOST_KATEDRY}${sciezka}`, cialo === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cialo) });
+    const d = await r.json().catch(() => null);
+    if (!d) throw new Error(`HTTP ${r.status}`);
+    if (d.kampania) setK(d.kampania);
+    return d;
+  };
+  useEffect(() => {   // ostatnia otwarta kampania Jasona (pracuje / czeka na wybór wersji / stanęła)
+    fetch(`${MOST_KATEDRY}/api/jason/kampanie`).then((r) => r.json()).then((d) => { const o = (d.kampanie ?? []).find((x: KampaniaJasona) => ['robi', 'do_akceptacji', 'blad'].includes(x.stan)); if (o) setK(o); }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (k?.stan !== 'robi') return;
+    const t = setInterval(() => { fetch(`${MOST_KATEDRY}/api/jason/kampanie/${k.id}`).then((r) => r.json()).then((d) => { if (d?.kampania) setK(d.kampania); }).catch(() => {}); }, 10000);
+    return () => clearInterval(t);
+  }, [k?.id, k?.stan]);
+
+  const rob = async (opis: string, fn: () => Promise<{ success?: boolean; message?: string } | void>) => {
+    setTrwa(true); setInfo(opis);
+    try { const d = await fn(); setInfo(d && d.success === false ? `⚠ ${d.message}` : ''); }
+    catch (e) { setInfo(`⚠ ${e instanceof Error ? e.message : e}`); }
     setTrwa(false);
   };
+  const potwierdz = (nr: number, s?: number | null) => window.confirm(`Pobrać wersję ${nr} (${czasWersji(s)})?\n\nTo zużyje 1 z miesięcznych pobrań Suno z prawami komercyjnymi. Pozostałe wersje zostają w Suno.`);
+  const pobierzWersje = (w: WersjaSuno, nr: number) => potwierdz(nr, w.sekundy) && rob(`Pobieram wersję ${nr}…`, async () => {
+    const { plik, audioUrl } = await pobierzWersjeSuno(w.id, w.tytul);
+    setPobrane((p) => ({ ...p, [w.id]: plik }));
+    onPobrano(plik, audioUrl, w.tytul);
+  });
+  const glosJasona = glosy.find((g) => g.id === glos);
+
+  const przycisk = 'rounded px-2 py-0.5 font-bold text-white disabled:opacity-50';
   return (
     <div className="mb-2.5 rounded-xl border border-pink-500/40 bg-pink-950/20 p-2.5 text-[11px] font-mono text-pink-100">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span>
           {stan === undefined ? '🔌 Sprawdzam Suno…' : stan === null ? '⚠ Most Katedry nie odpowiada.' : stan.polaczone
-            ? `🎵 Suno połączone — „Generuj” woła audio-create (2 wersje, kredyty konta${stan.zgodaDomyslna === false ? '; zgoda domyślna WYŁĄCZONA — most odmówi' : ''}) i zapisuje do _OtakOs_Muzyka/Suno MCP. Udio niepodłączone.`
+            ? `🎵 Suno połączone — „Generuj” tworzy 2 wersje (kredyty konta${stan.zgodaDomyslna === false ? '; zgoda domyślna WYŁĄCZONA — most odmówi' : ''}) do odsłuchu. Nic nie pobiera się samo. Udio niepodłączone.`
             : `⚠ ${stan.powod || stan.blad || 'Konto Suno niepołączone'} (Hub → Impresariat → 🎵🔌 Suno)`}
         </span>
-        <button onClick={zlec} disabled={trwa || !stan?.polaczone}
-          title="Jason sam: Suno → pobranie → okładka Palety → pakiet do Izby Akceptacji (StoL)"
-          className="shrink-0 px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-500 text-white font-bold disabled:opacity-50">
-          {trwa ? 'JASON PRACUJE…' : '🎛️ Jason: Stacja 1 — Velvet Booth for Two'}
+        <select value={glos} onChange={(e) => ustawGlos(e.target.value)} disabled={!stan?.polaczone}
+          title="Persona głosowa z My Voices w Suno (voices-list). Suno przyjmuje JEDEN głos na utwór."
+          className="shrink-0 rounded-lg border border-pink-500/40 bg-slate-950 px-2 py-1.5 text-pink-100">
+          <option value="">🎤 bez persony</option>
+          {glosy.map((g) => <option key={g.id} value={g.id}>🎤 {g.name}</option>)}
+        </select>
+      </div>
+
+      {wersje.length > 0 && (
+        <div className="mt-2 flex flex-col gap-1.5">
+          <div className="text-pink-200/90">🎧 Wersje z „Generuj” — odsłuchaj w Suno i pobierz jedną:</div>
+          {wersje.map((w, i) => (
+            <div key={w.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-950/50 px-2 py-1.5">
+              <span className="font-bold">Wersja {i + 1} · {czasWersji(w.sekundy)}</span>
+              <a href={w.odsluch} target="_blank" rel="noreferrer" className="rounded border border-pink-400/50 px-2 py-0.5 hover:bg-pink-800/40">▶ odsłuchaj w Suno</a>
+              {pobrane[w.id]
+                ? <span className="text-emerald-300">✓ _OtakOs_Muzyka/{pobrane[w.id]}</span>
+                : <button onClick={() => pobierzWersje(w, i + 1)} disabled={trwa} className={`${przycisk} bg-emerald-600 hover:bg-emerald-500`}>✓ Pobierz tę wersję</button>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-pink-500/20 pt-2">
+        <span>🎛️ Jason · „Zero Gravity Heart (0.00G Sessions)” · Stacja 1: Velvet Booth for Two{glosJasona ? ` · głos: ${glosJasona.name}` : ' · duet bez persony'}</span>
+        <button onClick={() => rob('Zlecam Jasonowi…', () => jason('/api/jason/wykonaj-kampanie', { stacja: 1, skad: 'music-studio', ...(glos ? { glos } : {}) }))}
+          disabled={trwa || !stan?.polaczone || k?.stan === 'robi'}
+          title="Jason sam: Suno (2 wersje) → okładka Palety → odsłuch tutaj i w Izbie Akceptacji (StoL). Pobrania nie będzie, dopóki nie wybierzesz wersji."
+          className="shrink-0 rounded-lg bg-pink-600 px-3 py-1.5 font-bold text-white hover:bg-pink-500 disabled:opacity-50">
+          {k?.stan === 'robi' ? 'JASON PRACUJE…' : 'WYKONAJ KAMPANIĘ'}
         </button>
       </div>
+      {k && (
+        <div className="mt-1.5 flex flex-col gap-1.5">
+          <div className="text-pink-200/90">
+            {k.stan === 'robi' ? `Jason pracuje: ${Object.entries(k.etapy ?? {}).map(([n, e]) => `${n} ${e.stan}`).join(' → ') || 'start'}…`
+              : k.stan === 'blad' ? `⚠ ${k.blad}`
+              : k.stan === 'do_akceptacji' ? `Gotowe do odsłuchu${k.glos?.nazwa ? ` (głos: ${k.glos.nazwa})` : ''}. Nic nie pobrano — wybierz jedną wersję:`
+              : k.stan === 'przyjeta' ? `✓ Wersja ${k.wybrana?.wersja} pobrana: _OtakOs_Muzyka/${k.wybrana?.plik}`
+              : `Kampania ${k.stan}.`}
+          </div>
+          {k.stan === 'do_akceptacji' && k.klipy.map((c, i) => c.status !== 'complete' ? null : (
+            <div key={c.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-950/50 px-2 py-1.5">
+              <span className="font-bold">Wersja {i + 1} · {czasWersji(c.sekundy)}</span>
+              <a href={c.odsluch ?? `https://suno.com/song/${c.id}`} target="_blank" rel="noreferrer" className="rounded border border-pink-400/50 px-2 py-0.5 hover:bg-pink-800/40">▶ odsłuchaj w Suno</a>
+              <button onClick={() => potwierdz(i + 1, c.sekundy) && rob(`Pobieram wersję ${i + 1}…`, async () => {
+                const d = await jason(`/api/jason/kampanie/${k.id}/pobierz`, { wersja: i + 1 });
+                const plik = d.kampania?.wybrana?.plik;
+                if (d.success && plik) onPobrano(plik, `${MOST_KATEDRY}/music/${String(plik).split('/').map(encodeURIComponent).join('/')}`, 'Velvet Booth for Two (82 BPM Intro)');
+                return d;
+              })} disabled={trwa} className={`${przycisk} bg-emerald-600 hover:bg-emerald-500`}>✓ Pobierz tę wersję</button>
+              {c.bladPobrania && <span className="text-amber-300">⚠ {c.bladPobrania}</span>}
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-3 text-pink-200/80">
+            {k.okladka?.plik && <a href={`${MOST_KATEDRY}/api/jason/kampanie/${k.id}/okladka`} target="_blank" rel="noreferrer" className="underline">🖼️ okładka Palety</a>}
+            {k.stan === 'do_akceptacji' && k.okladka?.blad && <button onClick={() => rob('Zlecam okładkę…', () => jason(`/api/jason/kampanie/${k.id}/ponow`, { okladka: true }))} disabled={trwa} className="underline">↻ okładka (nie wyszła: {k.okladka.blad})</button>}
+            {k.stan === 'do_akceptacji' && <button onClick={() => rob('Odrzucam…', () => jason(`/api/jason/kampanie/${k.id}/odrzuc`, {}))} disabled={trwa} className="underline">✕ odrzuć bez pobierania</button>}
+            {k.stan === 'blad' && <button onClick={() => rob('Wznawiam…', () => jason(`/api/jason/kampanie/${k.id}/ponow`, {}))} disabled={trwa} title="Wznawia od miejsca przerwania — utwór NIE powstanie drugi raz i nic nie zostanie pobrane." className="underline">↻ wznów (bez nowych kredytów)</button>}
+          </div>
+        </div>
+      )}
       {info && <div className="mt-1 text-pink-200/90">{info}</div>}
     </div>
   );
@@ -169,6 +247,13 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
     fetch(`${MOST_KATEDRY}/api/suno/stan`).then((r) => r.json()).then((d) => { if (zywy) setSunoStan(d?.suno ?? null); }).catch(() => { if (zywy) setSunoStan(null); });
     return () => { zywy = false; };
   }, [engine]);
+  // 🎤 persony głosowe konta Suno (voices-list) — wybór idzie do audio-create jako voice_id i do kampanii Jasona
+  const [sunoGlosy, setSunoGlosy] = useState<{ id: string; name: string }[]>([]);
+  const [sunoGlos, setSunoGlos] = useState('');
+  useEffect(() => {
+    if (engine !== 'suno-udio-bridge' || !sunoStan?.polaczone || sunoGlosy.length) return;
+    glosySuno().then(setSunoGlosy).catch(() => {});
+  }, [engine, sunoStan, sunoGlosy.length]);
   const [aceVariant, setAceVariant] = useState<AceModelVariant>('turbo');
   /** Które rodziny wag są realnie gotowe — z mostu, nie z założenia. */
   const [rodzinyGotowe, setRodzinyGotowe] = useState<Record<string, boolean> | null>(null);
@@ -366,6 +451,8 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
           cfgScale,
           steps: diffusionSteps,
           targetFolder: '_OtakOs_Muzyka',
+          voiceId: engine === 'suno-udio-bridge' && sunoGlos ? sunoGlos : undefined,
+          voiceName: sunoGlosy.find((g) => g.id === sunoGlos)?.name,
           title: engine === 'suno-udio-bridge'
             ? (style.slice(0, 60) || 'Suno')
             : engine === 'ace-step'
@@ -710,7 +797,14 @@ Rezonans 432Hz wybrzmiewa w nieskończoność.`
               <span className="text-[10px] text-slate-500 font-mono">DiT Tensor Architecture</span>
             </div>
 
-            {engine === 'suno-udio-bridge' && <SunoPasek stan={sunoStan} />}
+            {engine === 'suno-udio-bridge' && (
+              <SunoPasek stan={sunoStan} glos={sunoGlos} ustawGlos={setSunoGlos} glosy={sunoGlosy}
+                wersje={result?.engine === 'suno-udio-bridge' ? result.sunoWersje ?? [] : []}
+                onPobrano={(plik, audioUrl, tytul) => setResult((r) => ({
+                  success: true, title: tytul, duration: r?.duration ?? duration, engine: 'suno-udio-bridge', modelVariant: r?.modelVariant ?? modelVariant,
+                  grvEarned: 0, sunoWersje: r?.sunoWersje, audioUrl, savedPath: `_OtakOs_Muzyka/${plik}`,
+                }))} />
+            )}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
               {SILNIKI.map((s) => {
                 const wybrany = engine === s.id;
