@@ -92,7 +92,8 @@ type StanSuno = { polaczone: boolean; powod?: string; blad?: string | null; zgod
 const MOST_KATEDRY = 'http://127.0.0.1:3001';
 const czasWersji = (s?: number | null) => (s && s > 0 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '?:??');
 type KlipJasona = { id: string; status: string; sekundy?: number | null; odsluch?: string | null; plik?: string | null; bladPobrania?: string };
-type KampaniaJasona = { id: string; stan: string; blad?: string; klipy: KlipJasona[]; etapy?: Record<string, { stan: string }>; okladka?: { plik?: string; blad?: string } | null; wybrana?: { wersja: number; plik: string }; glos?: { nazwa?: string } | null };
+type StacjaJasona = { nr: number; tytul: string; artysci?: string[]; glos?: string | null };
+type KampaniaJasona = { id: string; stan: string; stacja?: { nr: number; tytul: string }; blad?: string; klipy: KlipJasona[]; etapy?: Record<string, { stan: string }>; okladka?: { plik?: string; blad?: string } | null; wybrana?: { wersja: number; plik: string }; glos?: { nazwa?: string } | null };
 
 const SunoPasek: React.FC<{
   stan: StanSuno | undefined;
@@ -103,6 +104,8 @@ const SunoPasek: React.FC<{
   const [info, setInfo] = useState('');
   const [k, setK] = useState<KampaniaJasona | null>(null);
   const [pobrane, setPobrane] = useState<Record<string, string>>({});
+  const [nr, setNr] = useState(1);
+  const [stacje, setStacje] = useState<StacjaJasona[]>([]);
 
   const jason = async (sciezka: string, cialo?: unknown) => {
     const r = await fetch(`${MOST_KATEDRY}${sciezka}`, cialo === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cialo) });
@@ -112,7 +115,7 @@ const SunoPasek: React.FC<{
     return d;
   };
   useEffect(() => {   // ostatnia otwarta kampania Jasona (pracuje / czeka na wybór wersji / stanęła)
-    fetch(`${MOST_KATEDRY}/api/jason/kampanie`).then((r) => r.json()).then((d) => { const o = (d.kampanie ?? []).find((x: KampaniaJasona) => ['robi', 'do_akceptacji', 'blad'].includes(x.stan)); if (o) setK(o); }).catch(() => {});
+    fetch(`${MOST_KATEDRY}/api/jason/kampanie`).then((r) => r.json()).then((d) => { const o = (d.kampanie ?? []).find((x: KampaniaJasona) => ['robi', 'do_akceptacji', 'blad'].includes(x.stan)); setStacje(d.stacje ?? []); if (o) { setK(o); if (o.stacja?.nr) setNr(o.stacja.nr); } }).catch(() => {});
   }, []);
   useEffect(() => {
     if (k?.stan !== 'robi') return;
@@ -133,6 +136,11 @@ const SunoPasek: React.FC<{
     onPobrano(plik, audioUrl, w.tytul);
   });
   const glosJasona = glosy.find((g) => g.id === glos);
+  const stacja = stacje.find((x) => x.nr === nr);
+  const wybierzStacje = (n: number) => {   // ostatnia otwarta kampania tej stacji albo pusty pasek gotowy do zlecenia
+    setNr(n); setK(null); setInfo('');
+    fetch(`${MOST_KATEDRY}/api/jason/kampanie`).then((r) => r.json()).then((d) => setK((d.kampanie ?? []).find((x: KampaniaJasona) => x.stacja?.nr === n && ['robi', 'do_akceptacji', 'blad'].includes(x.stan)) ?? null)).catch(() => {});
+  };
 
   const przycisk = 'rounded px-2 py-0.5 font-bold text-white disabled:opacity-50';
   return (
@@ -167,8 +175,15 @@ const SunoPasek: React.FC<{
       )}
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-pink-500/20 pt-2">
-        <span>🎛️ Jason · „Zero Gravity Heart (0.00G Sessions)” · Stacja 1: Velvet Booth for Two{glosJasona ? ` · głos: ${glosJasona.name}` : ' · duet bez persony'}</span>
-        <button onClick={() => rob('Zlecam Jasonowi…', () => jason('/api/jason/wykonaj-kampanie', { stacja: 1, skad: 'music-studio', ...(glos ? { glos } : {}) }))}
+        <span className="flex flex-wrap items-center gap-2">🎛️ Jason · „Zero Gravity Heart (0.00G Sessions)” ·
+          {stacje.length > 1
+            ? <select value={nr} onChange={(e) => wybierzStacje(Number(e.target.value))} disabled={trwa || k?.stan === 'robi'} className="rounded-lg border border-pink-500/40 bg-slate-950 px-2 py-1 text-pink-100">
+                {stacje.map((x) => <option key={x.nr} value={x.nr}>Stacja {x.nr}: {x.tytul}</option>)}
+              </select>
+            : <span>Stacja {nr}: {stacja?.tytul ?? 'Velvet Booth for Two (82 BPM Intro)'}</span>}
+          <span>{glosJasona ? `· głos: ${glosJasona.name}` : stacja?.glos ? `· głos: ${stacja.glos} (persona stacji)` : (stacja?.artysci?.length ?? 2) > 1 ? '· duet bez persony' : '· głos artysty stacji'}</span>
+        </span>
+        <button onClick={() => rob('Zlecam Jasonowi…', () => jason('/api/jason/wykonaj-kampanie', { stacja: nr, skad: 'music-studio', ...(glos ? { glos } : {}) }))}
           disabled={trwa || !stan?.polaczone || k?.stan === 'robi'}
           title="Jason sam: Suno (2 wersje) → okładka Palety → odsłuch tutaj i w Izbie Akceptacji (StoL). Pobrania nie będzie, dopóki nie wybierzesz wersji."
           className="shrink-0 rounded-lg bg-pink-600 px-3 py-1.5 font-bold text-white hover:bg-pink-500 disabled:opacity-50">
@@ -191,7 +206,7 @@ const SunoPasek: React.FC<{
               <button onClick={() => potwierdz(i + 1, c.sekundy) && rob(`Pobieram wersję ${i + 1}…`, async () => {
                 const d = await jason(`/api/jason/kampanie/${k.id}/pobierz`, { wersja: i + 1 });
                 const plik = d.kampania?.wybrana?.plik;
-                if (d.success && plik) onPobrano(plik, `${MOST_KATEDRY}/music/${String(plik).split('/').map(encodeURIComponent).join('/')}`, 'Velvet Booth for Two (82 BPM Intro)');
+                if (d.success && plik) onPobrano(plik, `${MOST_KATEDRY}/music/${String(plik).split('/').map(encodeURIComponent).join('/')}`, d.kampania?.stacja?.tytul ?? stacja?.tytul ?? 'Suno');
                 return d;
               })} disabled={trwa} className={`${przycisk} bg-emerald-600 hover:bg-emerald-500`}>✓ Pobierz tę wersję</button>
               {c.bladPobrania && <span className="text-amber-300">⚠ {c.bladPobrania}</span>}
