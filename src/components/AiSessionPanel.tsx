@@ -92,7 +92,7 @@ type StanSuno = { polaczone: boolean; powod?: string; blad?: string | null; zgod
 const MOST_KATEDRY = 'http://127.0.0.1:3001';
 const czasWersji = (s?: number | null) => (s && s > 0 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '?:??');
 type KlipJasona = { id: string; status: string; sekundy?: number | null; odsluch?: string | null; plik?: string | null; bladPobrania?: string };
-type ScenaTeledysku = { nr: number; sekcja: string; od: number; do: number; kto: string[]; opis: string; obraz: string; prompt169: string; prompt916: string };
+type ScenaTeledysku = { nr: number; sekcja: string; od: number; do: number; kto: string[]; instrumental?: boolean; opis: string; obraz: string; prompt169: string; prompt916: string };
 type WydanieJasona = { id: string; stacja?: { nr: number; tytul: string }; spotify?: { folder: string } | null; teoStory?: { serial?: string; url?: string | null } | null };
 type StacjaJasona = { nr: number; tytul: string; artysci?: string[]; glos?: string | null };
 type KampaniaJasona = { id: string; stan: string; stacja?: { nr: number; tytul: string }; blad?: string; klipy: KlipJasona[]; etapy?: Record<string, { stan: string }>; okladka?: { plik?: string; blad?: string } | null; wybrana?: { wersja: number; plik: string }; glos?: { nazwa?: string } | null };
@@ -276,13 +276,13 @@ const SunoPasek: React.FC<{
         <div className="mt-2 rounded-lg border border-fuchsia-500/40 bg-fuchsia-950/20 p-2 text-fuchsia-100">
           <div className="flex flex-wrap items-center gap-2">
             <span>🚀 Paczka wydawnicza gotowa: _OtakOs_Muzyka/{wydanie.spotify?.folder}</span>
-            <button onClick={projektujTeledysk} disabled={trwa} title="Storyboard 5 scen w paczce + projekt teledysku w TeO Story Studio (utwór, okładka jako klatka bazowa, tekst). Nic nie kosztuje."
+            <button onClick={projektujTeledysk} disabled={trwa} title="Storyboard 10–14 ujęć w paczce + projekt teledysku w TeO Story Studio (utwór, okładka jako klatka bazowa, tekst). Nic nie kosztuje."
               className={`${przycisk} bg-fuchsia-600 px-2.5 py-1 hover:bg-fuchsia-500`}>🎬 Projektuj Teledysk w TeO Story</button>
             {skopiowano && <span className="text-emerald-300">✓ skopiowano: {skopiowano}</span>}
           </div>
           {sceny.map((sc) => (
             <div key={sc.nr} className="mt-1.5 rounded bg-slate-950/50 p-2">
-              <div className="font-bold">{sc.nr}. {sc.sekcja} · {czasWersji(sc.od)}–{czasWersji(sc.do)} · {sc.kto.join(' + ')}</div>
+              <div className="font-bold">{sc.nr}. {czasWersji(sc.od)}–{czasWersji(sc.do)} · {sc.sekcja} · {sc.kto.length ? sc.kto.join(' + ') : sc.instrumental ? 'bez słów' : 'bez ludzi w kadrze'}</div>
               <div className="text-fuchsia-200/80">{sc.opis} {sc.obraz}</div>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 <button onClick={() => kopiuj(sc.prompt169, `scena ${sc.nr} · 16:9`)} title={sc.prompt169} className="rounded border border-fuchsia-400/50 px-2 py-0.5 hover:bg-fuchsia-800/40">📋 Kopiuj prompt sceny (16:9)</button>
