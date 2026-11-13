@@ -92,6 +92,8 @@ type StanSuno = { polaczone: boolean; powod?: string; blad?: string | null; zgod
 const MOST_KATEDRY = 'http://127.0.0.1:3001';
 const czasWersji = (s?: number | null) => (s && s > 0 ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}` : '?:??');
 type KlipJasona = { id: string; status: string; sekundy?: number | null; odsluch?: string | null; plik?: string | null; bladPobrania?: string };
+type ScenaTeledysku = { nr: number; sekcja: string; od: number; do: number; kto: string[]; opis: string; obraz: string; prompt169: string; prompt916: string };
+type WydanieJasona = { id: string; stacja?: { nr: number; tytul: string }; spotify?: { folder: string } | null; teoStory?: { serial?: string; url?: string | null } | null };
 type StacjaJasona = { nr: number; tytul: string; artysci?: string[]; glos?: string | null };
 type KampaniaJasona = { id: string; stan: string; stacja?: { nr: number; tytul: string }; blad?: string; klipy: KlipJasona[]; etapy?: Record<string, { stan: string }>; okladka?: { plik?: string; blad?: string } | null; wybrana?: { wersja: number; plik: string }; glos?: { nazwa?: string } | null };
 
@@ -107,6 +109,9 @@ const SunoPasek: React.FC<{
   const [nr, setNr] = useState(1);
   const [stacje, setStacje] = useState<StacjaJasona[]>([]);
   const [nowa, setNowa] = useState(false);
+  const [wydanie, setWydanie] = useState<WydanieJasona | null>(null);   // przyjęta kampania stacji z paczką Spotify
+  const [sceny, setSceny] = useState<ScenaTeledysku[]>([]);
+  const [skopiowano, setSkopiowano] = useState('');
   const [f, setF] = useState({ tytul: '', glos: '', artysci: '', styl: '', tekst: '' });
 
   const jason = async (sciezka: string, cialo?: unknown) => {
@@ -119,6 +124,26 @@ const SunoPasek: React.FC<{
   useEffect(() => {   // ostatnia otwarta kampania Jasona (pracuje / czeka na wybór wersji / stanęła)
     fetch(`${MOST_KATEDRY}/api/jason/kampanie`).then((r) => r.json()).then((d) => { const o = (d.kampanie ?? []).find((x: KampaniaJasona) => ['robi', 'do_akceptacji', 'blad'].includes(x.stan)); setStacje(d.stacje ?? []); if (o) { setK(o); if (o.stacja?.nr) setNr(o.stacja.nr); } }).catch(() => {});
   }, []);
+  // 🎬 karta wydawnicza stacji: przyjęta kampania z paczką Spotify → teledysk w TeO Story
+  useEffect(() => {
+    let zywy = true;
+    fetch(`${MOST_KATEDRY}/api/jason/kampanie`).then((r) => r.json()).then((d) => {
+      const w = (d.kampanie ?? []).find((x: WydanieJasona & { stan: string }) => x.stan === 'przyjeta' && x.spotify && x.stacja?.nr === nr);
+      if (!zywy) return;
+      setWydanie(w ?? null); setSceny([]);
+      if (w?.teoStory) fetch(`${MOST_KATEDRY}/api/jason/kampanie/${w.id}/storyboard`).then((r) => r.json()).then((s) => { if (zywy && s.success) setSceny(s.storyboard.sceny); }).catch(() => {});
+    }).catch(() => {});
+    return () => { zywy = false; };
+  }, [nr, k?.stan]);
+  const projektujTeledysk = () => rob('Układam storyboard i zakładam projekt w TeO Story…', async () => {
+    const r = await fetch(`${MOST_KATEDRY}/api/jason/kampanie/${wydanie!.id}/teo-story`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const d = await r.json();
+    if (d.success) { setWydanie(d.kampania); setSceny(d.storyboard.sceny); if (d.kampania?.teoStory?.url) window.open(`${MOST_KATEDRY}${d.kampania.teoStory.url}`, '_blank', 'noopener'); }
+    return d;
+  });
+  const kopiuj = async (tekst: string, co: string) => {
+    try { await navigator.clipboard.writeText(tekst); setSkopiowano(co); setTimeout(() => setSkopiowano(''), 2500); } catch { setInfo('⚠ Przeglądarka nie pozwoliła skopiować do schowka.'); }
+  };
   useEffect(() => {
     if (k?.stan !== 'robi') return;
     const t = setInterval(() => { fetch(`${MOST_KATEDRY}/api/jason/kampanie/${k.id}`).then((r) => r.json()).then((d) => { if (d?.kampania) setK(d.kampania); }).catch(() => {}); }, 10000);
@@ -245,6 +270,27 @@ const SunoPasek: React.FC<{
             {k.stan === 'do_akceptacji' && <button onClick={() => rob('Odrzucam…', () => jason(`/api/jason/kampanie/${k.id}/odrzuc`, {}))} disabled={trwa} className="underline">✕ odrzuć bez pobierania</button>}
             {k.stan === 'blad' && <button onClick={() => rob('Wznawiam…', () => jason(`/api/jason/kampanie/${k.id}/ponow`, {}))} disabled={trwa} title="Wznawia od miejsca przerwania — utwór NIE powstanie drugi raz i nic nie zostanie pobrane." className="underline">↻ wznów (bez nowych kredytów)</button>}
           </div>
+        </div>
+      )}
+      {wydanie && (
+        <div className="mt-2 rounded-lg border border-fuchsia-500/40 bg-fuchsia-950/20 p-2 text-fuchsia-100">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>🚀 Paczka wydawnicza gotowa: _OtakOs_Muzyka/{wydanie.spotify?.folder}</span>
+            <button onClick={projektujTeledysk} disabled={trwa} title="Storyboard 5 scen w paczce + projekt teledysku w TeO Story Studio (utwór, okładka jako klatka bazowa, tekst). Nic nie kosztuje."
+              className={`${przycisk} bg-fuchsia-600 px-2.5 py-1 hover:bg-fuchsia-500`}>🎬 Projektuj Teledysk w TeO Story</button>
+            {skopiowano && <span className="text-emerald-300">✓ skopiowano: {skopiowano}</span>}
+          </div>
+          {sceny.map((sc) => (
+            <div key={sc.nr} className="mt-1.5 rounded bg-slate-950/50 p-2">
+              <div className="font-bold">{sc.nr}. {sc.sekcja} · {czasWersji(sc.od)}–{czasWersji(sc.do)} · {sc.kto.join(' + ')}</div>
+              <div className="text-fuchsia-200/80">{sc.opis} {sc.obraz}</div>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                <button onClick={() => kopiuj(sc.prompt169, `scena ${sc.nr} · 16:9`)} title={sc.prompt169} className="rounded border border-fuchsia-400/50 px-2 py-0.5 hover:bg-fuchsia-800/40">📋 Kopiuj prompt sceny (16:9)</button>
+                <button onClick={() => kopiuj(sc.prompt916, `scena ${sc.nr} · 9:16`)} title={sc.prompt916} className="rounded border border-fuchsia-400/50 px-2 py-0.5 hover:bg-fuchsia-800/40">📋 9:16 Canvas</button>
+              </div>
+            </div>
+          ))}
+          {sceny.length > 0 && <div className="mt-1 text-fuchsia-200/60">Klatki scen rysuje Paleta w Hubie (panel Jasona przy Stole Narad).</div>}
         </div>
       )}
       {info && <div className="mt-1 text-pink-200/90">{info}</div>}
