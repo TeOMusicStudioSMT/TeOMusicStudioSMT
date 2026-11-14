@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Radio, Activity, Mic2, ArrowLeft, Grid3x3, Scissors, Wrench, AudioLines, Package, Piano
+  Radio, Activity, Mic2, ArrowLeft, Grid3x3, Scissors, Wrench, AudioLines, Package, Piano, Music4
 } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import BioResonanceEngine from './components/BioResonanceEngine';
@@ -16,6 +16,7 @@ import WarsztatPanel from './components/WarsztatPanel';
 import SamplerGlosuPanel from './components/SamplerGlosuPanel';
 import SkladnicaPanel from './components/SkladnicaPanel';
 import JamZJoannaPanel from './components/JamZJoannaPanel';
+import WizualizerPanel from './components/WizualizerPanel';
 import { JoannaPopup } from './components/JoannaPopup';
 import type { StartBitu } from './components/BitGridPanel';
 import type { WynikWorkflow } from './workflow/joannaWorkflow';
@@ -40,7 +41,7 @@ function getInitialTeleport(): { params: TeleportParams | null; active: string |
   // Wejście wprost w moduł: /?modul=bity — pozwala Katedrze (i Joannie)
   // teleportować Suwerena od razu tam, gdzie trzeba, zamiast na landing.
   const modul = query.get('modul');
-  const ZNANE_MODULY = ['ai', 'jam', 'bity', 'rzezba', 'sampler', 'skladnica', 'radio', 'engine'];
+  const ZNANE_MODULY = ['ai', 'jam', 'wizualizer', 'bity', 'rzezba', 'sampler', 'skladnica', 'radio', 'engine'];
   if (modul && ZNANE_MODULY.includes(modul) && !style && !prompt) {
     return { params: null, active: modul };
   }
@@ -168,6 +169,14 @@ function App() {
               />
 
               <HolographicCard
+                title="Wizualizer 0.00G"
+                description="Gradient Score: świetlista partytura grającego utworu i stacji Jasona — nuty i GRAVITY liczone z dźwięku."
+                icon={Music4}
+                color="#e3a84c"
+                onClick={() => setActiveModule('wizualizer')}
+              />
+
+              <HolographicCard
                 title="Panel Bitów"
                 description="Step-Grid 0.00G. Perkusja syntezowana, strojenie 432Hz."
                 icon={Grid3x3}
@@ -247,6 +256,9 @@ function App() {
 
             {/* 🎹 JAM Z JOANNĄ — MPK mini przez Web MIDI, pytanie–odpowiedź, nagranie .mid + mp3 do _OtakOs_Muzyka/Jam z Joanną */}
             {activeModule === 'jam' && <JamZJoannaPanel onDoWarsztatu={(w) => { setWarsztatStart(w); setActiveModule('warsztat'); }} />}
+
+            {/* 🎼 WIZUALIZER 0.00G — świetlista partytura utworu (wspólny silnik src/lib/partytura000g.ts) */}
+            {activeModule === 'wizualizer' && <WizualizerPanel />}
 
             {/* 🥁 PANEL BITÓW — sekwencer krokowy */}
             {activeModule === 'bity' && <BitGridPanel start={startBitu} />}
