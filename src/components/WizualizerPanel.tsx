@@ -7,7 +7,7 @@
  * Utwór biblioteki nie ma storyboardu: epoki to bloki po 8 taktów, bez wersów.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { analizujAudio, utworzPartyture, type AktPartytury, type DanePartytury, type Partytura } from '../lib/partytura000g';
+import { NAGLOWEK_PARTYTURY, analizujAudio, utworzPartyture, type AktPartytury, type DanePartytury, type Partytura } from '../lib/partytura000g';
 
 const MOST = 'http://127.0.0.1:3001';
 type Zrodlo = { klucz: string; etykieta: string; audio: string; bpm: number | null; sekundy: number | null; naglowek: string; storyboard?: string | null; kampania?: string; plik?: string };
@@ -35,8 +35,8 @@ export default function WizualizerPanel() {
     ]).then(([j, b]) => {
       const stacje: Zrodlo[] = (j?.utwory ?? []).map((u: { id: string; nr: number; tytul: string; artysci: string[]; bpm: number | null; sekundy: number | null; audio: string; storyboard?: { url: string } | null }) => ({
         klucz: `j:${u.id}`, etykieta: `🎛️ Stacja ${u.nr} · ${u.tytul}${u.storyboard ? ' · 🎭' : ''}`, audio: `${MOST}${u.audio}`, bpm: u.bpm, sekundy: u.sekundy,
-        naglowek: `0.00G Descent · for ${u.artysci.join(' & ')}`, storyboard: u.storyboard ? `${MOST}${u.storyboard.url}` : null, kampania: u.id }));
-      const bib: Zrodlo[] = (b?.utwory ?? []).map((u: { plik: string; tytul: string; url: string }) => ({ klucz: `b:${u.plik}`, etykieta: `🎵 ${u.tytul}`, audio: `${MOST}${u.url}`, bpm: null, sekundy: null, naglowek: `0.00G Descent · ${u.tytul}`, plik: u.plik }));
+        naglowek: NAGLOWEK_PARTYTURY, storyboard: u.storyboard ? `${MOST}${u.storyboard.url}` : null, kampania: u.id }));
+      const bib: Zrodlo[] = (b?.utwory ?? []).map((u: { plik: string; tytul: string; url: string }) => ({ klucz: `b:${u.plik}`, etykieta: `🎵 ${u.tytul}`, audio: `${MOST}${u.url}`, bpm: null, sekundy: null, naglowek: NAGLOWEK_PARTYTURY, plik: u.plik }));
       setZrodla([...stacje, ...bib]);
       setInfo(stacje.length + bib.length ? '' : 'Most Katedry nie oddał utworów — uruchom Katedrę.');
       if (stacje[0] ?? bib[0]) setKlucz((stacje[0] ?? bib[0]).klucz);

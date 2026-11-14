@@ -1,5 +1,6 @@
 /**
- * 🎼 0.00G Orchestra / Opodysk Score Visualizer — wspólny silnik świetlistej partytury (Suweren 2026-11-14).
+ * 🎼 OPODYSK 0.00G · PARTYTURA H-A-C — wspólny silnik świetlistej partytury (Suweren 2026-11-14).
+ * Nazewnictwo w całości nasze: AKT n · TAKT n · GRAWITACJA → 0.00G (bez obcych etykiet uczenia maszynowego).
  *
  * BLIŹNIAK: ten sam plik leży w TeO Story Studio (`src/lib/`), TeO Music Studio (`src/lib/`) i w portalu
  * teostory.studio (`src/`). Zmieniasz jeden — skopiuj do pozostałych.
@@ -9,7 +10,7 @@
  *    szesnastce (z BPM stacji) najsilniejszy prążek pasma daje wysokość nuty, a jego energia — czy nuta gra i jak mocno.
  *    To pasma MIKSU, nie rozdzielone ścieżki: warstwy „Kael” i „Elara” to rejestry, w których leżą ich głosy,
  *    a nie wyizolowany wokal.
- *  • GRAVITY / LOSS = 1 − (energia, która już wybrzmiała ÷ energia całego utworu): schodzi z 1.0000 do 0.0000G,
+ *  • GRAWITACJA = 1 − (energia, która już wybrzmiała ÷ energia całego utworu): schodzi z 1.0000 do 0.0000G,
  *    szybciej w głośnych miejscach, stoi w ciszy.
  *  • KEY = zgodność chromagramu z najlepiej pasującą tonacją (profile Krumhansl–Kessler), PULSE = powtarzalność
  *    uderzeń co ćwierćnutę, HARMONY i MELODY = poziom swoich pasm, EXPRESSION = najwyższa dotąd dynamika
@@ -17,14 +18,17 @@
  * Akty (epoki), wersy i kadry przychodzą ze storyboardu; bez analizy dźwięku silnik niczego nie udaje — pisze, że czeka.
  */
 
+/** Napis nad partyturą (górny środek) — jeden dla wszystkich widoków. */
+export const NAGLOWEK_PARTYTURY = 'OPODYSK 0.00G · PARTYTURA H-A-C';
+
 export interface AktPartytury { nr: number; nazwa: string; od: number; do: number; wersy: string[]; obraz?: string | null }
 export interface DanePartytury {
-  /** mały napis u góry, np. „0.00G DESCENT · FOR ELARA & KAEL” */
+  /** mały napis u góry (zwykle `NAGLOWEK_PARTYTURY`) */
   naglowek: string;
   bpm: number;
   sekundy: number;
   akty: AktPartytury[];
-  /** słowo przed numerem aktu (domyślnie EPOCH) */
+  /** słowo przed numerem aktu (domyślnie AKT) */
   slowoAktu?: string;
   /** dźwięk jest jednym aktem z `n` (portal gra akt po akcie): krzywa GRAVITY liczy się w skali całej księgi */
   segment?: { i: number; n: number };
@@ -175,7 +179,7 @@ export function analizujAudio(url: string, bpm: number): Promise<Analiza> {
 }
 
 const wartosc = (t: Float32Array, a: Analiza, czas: number) => { const i = Math.max(0, Math.min(t.length - 1, czas / a.krok - 0.5)), j = Math.floor(i), f = i - j; return t[j] * (1 - f) + t[Math.min(t.length - 1, j + 1)] * f; };
-/** GRAVITY w chwili `czas` (w trybie segmentu: w skali całej księgi). */
+/** GRAWITACJA w chwili `czas` (w trybie segmentu: w skali całej księgi). */
 export function grawitacja(d: DanePartytury, a: Analiza, czas: number) {
   const g = czas <= 0 ? 1 : czas >= a.sekundy ? 0 : wartosc(a.strata, a, czas);
   return d.segment ? 1 - (d.segment.i + (1 - g)) / Math.max(1, d.segment.n) : g;
@@ -230,7 +234,7 @@ export function rysujPartyture(c: CanvasRenderingContext2D, w: number, h: number
   // ── górny pasek telemetrii ──
   napis(c, d.naglowek.toUpperCase(), w / 2, h * 0.028, `500 ${10 * s}px ${PROSTY}`, 'rgba(206,210,226,0.78)', 'center', 3.2 * s);
   if (akt) {
-    const e = `${d.slowoAktu ?? 'EPOCH'} ${akt.nr}`;
+    const e = `${d.slowoAktu ?? 'AKT'} ${akt.nr}`;
     napis(c, e, x0, h * 0.062, `600 ${27 * s}px ${PROSTY}`, '#d8d4c8', 'left', 3.5 * s);
     c.font = `600 ${27 * s}px ${PROSTY}`; (c as unknown as { letterSpacing: string }).letterSpacing = `${3.5 * s}px`;
     const dx = c.measureText(e).width; (c as unknown as { letterSpacing: string }).letterSpacing = '0px';
@@ -240,12 +244,12 @@ export function rysujPartyture(c: CanvasRenderingContext2D, w: number, h: number
   const liczba = grav === null ? '—' : koniec ? '0.0000G' : grav.toFixed(4);
   napis(c, liczba, x1, h * 0.062, `300 ${20 * s}px ${PROSTY}`, koniec ? '#f0c56a' : '#e6dfc8', 'right', 1.2 * s);
   c.font = `300 ${20 * s}px ${PROSTY}`; const lw = c.measureText(liczba).width + 14 * s;
-  napis(c, 'GRAVITY', x1 - lw, h * 0.064, `500 ${9 * s}px ${PROSTY}`, 'rgba(190,196,214,0.55)', 'right', 2.6 * s);
-  const krokNr = String(Math.max(0, Math.floor((t * bpm) / 60)));
-  c.font = `500 ${9 * s}px ${PROSTY}`; const gw = c.measureText('GRAVITY').width + 7 * 2.6 * s + 34 * s;
+  napis(c, 'GRAWITACJA', x1 - lw, h * 0.064, `500 ${9 * s}px ${PROSTY}`, 'rgba(190,196,214,0.55)', 'right', 2.6 * s);
+  const krokNr = String(Math.max(0, Math.floor((t * bpm) / 240)) + 1);   // numer taktu (4 uderzenia)
+  c.font = `500 ${9 * s}px ${PROSTY}`; const gw = c.measureText('GRAWITACJA').width + 10 * 2.6 * s + 34 * s;
   napis(c, krokNr, x1 - lw - gw, h * 0.062, `300 ${20 * s}px ${PROSTY}`, '#e6dfc8', 'right', 1.2 * s);
   c.font = `300 ${20 * s}px ${PROSTY}`; const kw = c.measureText(krokNr).width + 14 * s;
-  napis(c, 'STEP', x1 - lw - gw - kw, h * 0.064, `500 ${9 * s}px ${PROSTY}`, 'rgba(190,196,214,0.55)', 'right', 2.6 * s);
+  napis(c, 'TAKT', x1 - lw - gw - kw, h * 0.064, `500 ${9 * s}px ${PROSTY}`, 'rgba(190,196,214,0.55)', 'right', 2.6 * s);
   // poetycka kursywa: wers śpiewany w tej chwili
   const wers = wersW(akt, t);
   if (wers) {
@@ -292,9 +296,9 @@ export function rysujPartyture(c: CanvasRenderingContext2D, w: number, h: number
   c.shadowColor = 'rgba(255,190,110,0.9)'; c.shadowBlur = 14 * s; c.fillStyle = zl; c.fillRect(cx - Math.max(1, s), y0 - 6 * s, Math.max(2, 2 * s), H + 6 * s); c.shadowBlur = 0;
   c.beginPath(); c.moveTo(cx - 5 * s, y0 - 14 * s); c.lineTo(cx + 5 * s, y0 - 14 * s); c.lineTo(cx, y0 - 6 * s); c.closePath(); c.fillStyle = '#f3e3c2'; c.fill();
 
-  // ── dół: krzywa GRAVITY → 0.00G ──
+  // ── dół: krzywa GRAWITACJA → 0.00G ──
   const bx = x0, bw = w * 0.37, by = h * 0.875, bh = h * 0.085, etyk = `500 ${8.5 * s}px ${PROSTY}`, cichy = 'rgba(190,196,214,0.5)';
-  napis(c, 'LOSS → 0.00G', bx, by - 16 * s, etyk, cichy, 'left', 2.4 * s);
+  napis(c, 'GRAWITACJA → 0.00G', bx, by - 16 * s, etyk, cichy, 'left', 2.4 * s);
   napis(c, '1.0', bx - 8 * s, by, etyk, cichy, 'right'); napis(c, '0', bx - 8 * s, by + bh, etyk, cichy, 'right');
   c.fillStyle = 'rgba(160,170,210,0.12)'; c.fillRect(bx, by + bh, bw, Math.max(1, s));
   const seg = d.segment, calosc = seg ? seg.n : 1, tx = (ulamek: number) => bx + bw * ulamek;

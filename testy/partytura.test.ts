@@ -1,7 +1,7 @@
 // 🎼 Silnik partytury 0.00G — analiza liczona z próbek (bez przeglądarki)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analizujProbki, grawitacja, aktW, wersW, type DanePartytury } from '../src/lib/partytura000g.ts';
+import { analizujProbki, grawitacja, aktW, wersW, rysujPartyture, NAGLOWEK_PARTYTURY, type DanePartytury } from '../src/lib/partytura000g.ts';
 
 const SR = 44100, BPM = 120;
 /** 8 s: cisza 1 s, potem bas A2 (110 Hz) 3 s, potem bas E2 (82,41 Hz) + głośny ton 1000 Hz 4 s, z uderzeniem co ćwierćnutę */
@@ -46,4 +46,30 @@ test('akt i wers idą za czasem', () => {
   const d: DanePartytury = { naglowek: 'x', bpm: 82, sekundy: 20, akty: [{ nr: 1, nazwa: 'Intro', od: 0, do: 10, wersy: [] }, { nr: 2, nazwa: 'Chorus', od: 10, do: 20, wersy: ['a', 'b'] }] };
   assert.equal(aktW(d, 3)?.nr, 1); assert.equal(aktW(d, 12)?.nr, 2); assert.equal(aktW(d, 99)?.nr, 2);
   assert.equal(wersW(aktW(d, 12), 12), 'a'); assert.equal(wersW(aktW(d, 17), 17), 'b'); assert.equal(wersW(aktW(d, 3), 3), '');
+});
+
+test('nazewnictwo 0.00G: AKT, TAKT, GRAWITACJA → 0.00G, nagłówek OPODYSK 0.00G · PARTYTURA H-A-C — zero obcych etykiet', () => {
+  const teksty: string[] = [];
+  const grad = { addColorStop() {} };
+  const ctx = new Proxy({} as Record<string, unknown>, {
+    get(cel, nazwa: string) {
+      if (nazwa === 'fillText') return (t: string) => { teksty.push(String(t)); };
+      if (nazwa === 'measureText') return () => ({ width: 10 });
+      if (nazwa === 'createLinearGradient' || nazwa === 'createRadialGradient') return () => grad;
+      if (nazwa in cel) return cel[nazwa];
+      return () => {};
+    },
+    set(cel, nazwa: string, v) { cel[nazwa] = v; return true; },
+  }) as unknown as CanvasRenderingContext2D;
+  const a = analizujProbki(sygnal(), SR, BPM);
+  const d: DanePartytury = { naglowek: NAGLOWEK_PARTYTURY, bpm: BPM, sekundy: 8, akty: [{ nr: 1, nazwa: 'Intro', od: 0, do: 4, wersy: [] }, { nr: 5, nazwa: 'Chorus', od: 4, do: 8, wersy: ['Every line is ours'] }] };
+  rysujPartyture(ctx, 1280, 720, d, a, 5);   // 5 s przy 120 BPM = takt 3 (po 4 uderzeniach co 2 s)
+  const wszystko = teksty.join(' | ');
+  assert.equal(NAGLOWEK_PARTYTURY, 'OPODYSK 0.00G · PARTYTURA H-A-C');
+  assert.ok(teksty.includes(NAGLOWEK_PARTYTURY.toUpperCase()), 'nagłówek');
+  assert.ok(teksty.includes('AKT 5'), `AKT 5 w: ${wszystko}`);
+  assert.ok(teksty.includes('TAKT') && teksty.includes('3'), 'TAKT 3 (liczony w taktach, nie uderzeniach)');
+  assert.ok(teksty.includes('GRAWITACJA') && teksty.includes('GRAWITACJA → 0.00G'), 'GRAWITACJA');
+  assert.ok(teksty.includes('KEY') && teksty.includes('EXPRESSION'), 'paski wskaźników zostają');
+  assert.doesNotMatch(wszystko, /EPOCH|STEP|LOSS|DESCENT|GRAVITY/, `obce etykiety: ${wszystko}`);
 });
