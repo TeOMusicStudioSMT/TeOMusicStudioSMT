@@ -1,6 +1,6 @@
 /**
  * 🎼 OPODYSK 0.00G · PARTYTURA H-A-C — wspólny silnik świetlistej partytury (Suweren 2026-11-14).
- * Nazewnictwo w całości nasze: AKT n · TAKT n · GRAWITACJA → 0.00G (bez obcych etykiet uczenia maszynowego).
+ * Nazewnictwo w całości nasze: HACT n · TACT n · 0.00G (bez obcych etykiet uczenia maszynowego).
  *
  * BLIŹNIAK: ten sam plik leży w TeO Story Studio (`src/lib/`), TeO Music Studio (`src/lib/`) i w portalu
  * teostory.studio (`src/`). Zmieniasz jeden — skopiuj do pozostałych.
@@ -28,7 +28,7 @@ export interface DanePartytury {
   bpm: number;
   sekundy: number;
   akty: AktPartytury[];
-  /** słowo przed numerem aktu (domyślnie AKT) */
+  /** słowo przed numerem aktu (domyślnie HACT) */
   slowoAktu?: string;
   /** dźwięk jest jednym aktem z `n` (portal gra akt po akcie): krzywa GRAVITY liczy się w skali całej księgi */
   segment?: { i: number; n: number };
@@ -234,7 +234,7 @@ export function rysujPartyture(c: CanvasRenderingContext2D, w: number, h: number
   // ── górny pasek telemetrii ──
   napis(c, d.naglowek.toUpperCase(), w / 2, h * 0.028, `500 ${10 * s}px ${PROSTY}`, 'rgba(206,210,226,0.78)', 'center', 3.2 * s);
   if (akt) {
-    const e = `${d.slowoAktu ?? 'AKT'} ${akt.nr}`;
+    const e = `${d.slowoAktu ?? 'HACT'} ${akt.nr}`;
     napis(c, e, x0, h * 0.062, `600 ${27 * s}px ${PROSTY}`, '#d8d4c8', 'left', 3.5 * s);
     c.font = `600 ${27 * s}px ${PROSTY}`; (c as unknown as { letterSpacing: string }).letterSpacing = `${3.5 * s}px`;
     const dx = c.measureText(e).width; (c as unknown as { letterSpacing: string }).letterSpacing = '0px';
@@ -244,12 +244,12 @@ export function rysujPartyture(c: CanvasRenderingContext2D, w: number, h: number
   const liczba = grav === null ? '—' : koniec ? '0.0000G' : grav.toFixed(4);
   napis(c, liczba, x1, h * 0.062, `300 ${20 * s}px ${PROSTY}`, koniec ? '#f0c56a' : '#e6dfc8', 'right', 1.2 * s);
   c.font = `300 ${20 * s}px ${PROSTY}`; const lw = c.measureText(liczba).width + 14 * s;
-  napis(c, 'GRAWITACJA', x1 - lw, h * 0.064, `500 ${9 * s}px ${PROSTY}`, 'rgba(190,196,214,0.55)', 'right', 2.6 * s);
+  napis(c, '0.00G', x1 - lw, h * 0.064, `500 ${9 * s}px ${PROSTY}`, 'rgba(190,196,214,0.55)', 'right', 2.6 * s);
   const krokNr = String(Math.max(0, Math.floor((t * bpm) / 240)) + 1);   // numer taktu (4 uderzenia)
-  c.font = `500 ${9 * s}px ${PROSTY}`; const gw = c.measureText('GRAWITACJA').width + 10 * 2.6 * s + 34 * s;
+  c.font = `500 ${9 * s}px ${PROSTY}`; const gw = c.measureText('0.00G').width + 5 * 2.6 * s + 34 * s;
   napis(c, krokNr, x1 - lw - gw, h * 0.062, `300 ${20 * s}px ${PROSTY}`, '#e6dfc8', 'right', 1.2 * s);
   c.font = `300 ${20 * s}px ${PROSTY}`; const kw = c.measureText(krokNr).width + 14 * s;
-  napis(c, 'TAKT', x1 - lw - gw - kw, h * 0.064, `500 ${9 * s}px ${PROSTY}`, 'rgba(190,196,214,0.55)', 'right', 2.6 * s);
+  napis(c, 'TACT', x1 - lw - gw - kw, h * 0.064, `500 ${9 * s}px ${PROSTY}`, 'rgba(190,196,214,0.55)', 'right', 2.6 * s);
   // poetycka kursywa: wers śpiewany w tej chwili
   const wers = wersW(akt, t);
   if (wers) {
@@ -298,7 +298,7 @@ export function rysujPartyture(c: CanvasRenderingContext2D, w: number, h: number
 
   // ── dół: krzywa GRAWITACJA → 0.00G ──
   const bx = x0, bw = w * 0.37, by = h * 0.875, bh = h * 0.085, etyk = `500 ${8.5 * s}px ${PROSTY}`, cichy = 'rgba(190,196,214,0.5)';
-  napis(c, 'GRAWITACJA → 0.00G', bx, by - 16 * s, etyk, cichy, 'left', 2.4 * s);
+  napis(c, '0.00G', bx, by - 16 * s, etyk, cichy, 'left', 2.4 * s);
   napis(c, '1.0', bx - 8 * s, by, etyk, cichy, 'right'); napis(c, '0', bx - 8 * s, by + bh, etyk, cichy, 'right');
   c.fillStyle = 'rgba(160,170,210,0.12)'; c.fillRect(bx, by + bh, bw, Math.max(1, s));
   const seg = d.segment, calosc = seg ? seg.n : 1, tx = (ulamek: number) => bx + bw * ulamek;

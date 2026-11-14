@@ -48,7 +48,7 @@ test('akt i wers idą za czasem', () => {
   assert.equal(wersW(aktW(d, 12), 12), 'a'); assert.equal(wersW(aktW(d, 17), 17), 'b'); assert.equal(wersW(aktW(d, 3), 3), '');
 });
 
-test('nazewnictwo 0.00G: AKT, TAKT, GRAWITACJA → 0.00G, nagłówek OPODYSK 0.00G · PARTYTURA H-A-C — zero obcych etykiet', () => {
+test('nazewnictwo 0.00G: HACT, TACT, 0.00G, nagłówek OPODYSK 0.00G · PARTYTURA H-A-C — zero obcych etykiet', () => {
   const teksty: string[] = [];
   const grad = { addColorStop() {} };
   const ctx = new Proxy({} as Record<string, unknown>, {
@@ -67,9 +67,9 @@ test('nazewnictwo 0.00G: AKT, TAKT, GRAWITACJA → 0.00G, nagłówek OPODYSK 0.0
   const wszystko = teksty.join(' | ');
   assert.equal(NAGLOWEK_PARTYTURY, 'OPODYSK 0.00G · PARTYTURA H-A-C');
   assert.ok(teksty.includes(NAGLOWEK_PARTYTURY.toUpperCase()), 'nagłówek');
-  assert.ok(teksty.includes('AKT 5'), `AKT 5 w: ${wszystko}`);
-  assert.ok(teksty.includes('TAKT') && teksty.includes('3'), 'TAKT 3 (liczony w taktach, nie uderzeniach)');
-  assert.ok(teksty.includes('GRAWITACJA') && teksty.includes('GRAWITACJA → 0.00G'), 'GRAWITACJA');
+  assert.ok(teksty.includes('HACT 5'), `HACT 5 w: ${wszystko}`);
+  assert.ok(teksty.includes('TACT') && teksty.includes('3'), 'TACT 3 (liczony w taktach, nie uderzeniach)');
+  assert.equal(teksty.filter((t) => t === '0.00G').length, 2, 'etykieta 0.00G przy liczniku i nad wykresem');
   assert.ok(teksty.includes('KEY') && teksty.includes('EXPRESSION'), 'paski wskaźników zostają');
-  assert.doesNotMatch(wszystko, /EPOCH|STEP|LOSS|DESCENT|GRAVITY/, `obce etykiety: ${wszystko}`);
+  assert.doesNotMatch(wszystko, /EPOCH|STEP|LOSS|DESCENT|GRAVITY|GRAWITACJA|\bAKT\b|TAKT/, `stare etykiety: ${wszystko}`);
 });
