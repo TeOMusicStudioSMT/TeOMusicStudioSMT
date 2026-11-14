@@ -138,7 +138,7 @@ const SunoPasek: React.FC<{
   const projektujTeledysk = () => rob('Układam storyboard i zakładam projekt w TeO Story…', async () => {
     const r = await fetch(`${MOST_KATEDRY}/api/jason/kampanie/${wydanie!.id}/teo-story`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const d = await r.json();
-    if (d.success) { setWydanie(d.kampania); setSceny(d.storyboard.sceny); if (d.kampania?.teoStory?.url) window.open(`${MOST_KATEDRY}${d.kampania.teoStory.url}`, '_blank', 'noopener'); }
+    if (d.success) { setWydanie(d.kampania); setSceny(d.storyboard.sceny); window.open(`${MOST_KATEDRY}/apps/story/?teatr=${d.kampania.id}`, '_blank', 'noopener'); }   // od razu scena Teatru Opodysku tej stacji
     return d;
   });
   const kopiuj = async (tekst: string, co: string) => {
