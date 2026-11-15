@@ -334,7 +334,12 @@ export interface Partytura { ustawAnalize(a: Analiza | null, stan?: string): voi
 export function utworzPartyture(canvas: HTMLCanvasElement, o: { dane: DanePartytury; czas: () => number; fuzja?: boolean; dopasuj?: boolean; dlaNagrania?: boolean }): Partytura {
   let dane = o.dane, analiza: Analiza | null = null, stan = '', fuzja = !!o.fuzja, raf = 0, zywa = true;
   const obrazy = new Map<string, HTMLImageElement>();
-  const laduj = () => dane.akty.forEach((x) => { if (x.obraz && !obrazy.has(x.obraz)) { const i = new Image(); if (o.dlaNagrania) i.crossOrigin = 'anonymous'; i.src = x.obraz; obrazy.set(x.obraz, i); } });
+  const bloby: string[] = [];
+  // do nagrania tło idzie jako blob (fetch z CORS → ten sam origin), więc płótno nigdy nie jest „skażone” i MediaRecorder nie zapisuje czarnych klatek; bez CORS — awaryjnie crossOrigin
+  const laduj = () => dane.akty.forEach((x) => { const adres = x.obraz; if (adres && !obrazy.has(adres)) { const i = new Image();
+    if (o.dlaNagrania) fetch(adres, { mode: 'cors' }).then((r) => (r.ok ? r.blob() : Promise.reject(new Error('HTTP')))).then((b) => { const u = URL.createObjectURL(b); bloby.push(u); i.src = u; }).catch(() => { i.crossOrigin = 'anonymous'; i.src = adres; });
+    else i.src = adres;
+    obrazy.set(adres, i); } });
   const gotowy = (adres?: string | null) => { const i = adres ? obrazy.get(adres) : null; return i && i.complete && i.naturalWidth ? i : null; };
   let aktNr = -1, zmiana = 0, poprz: HTMLImageElement | null = null, biezacy: HTMLImageElement | null = null;
   const klatka = () => {
@@ -358,6 +363,6 @@ export function utworzPartyture(canvas: HTMLCanvasElement, o: { dane: DanePartyt
     ustawAnalize(a, s = '') { analiza = a; stan = s; },
     ustawDane(d) { dane = d; aktNr = -1; laduj(); },
     ustawFuzje(f) { fuzja = f; },
-    stop() { zywa = false; cancelAnimationFrame(raf); },
+    stop() { zywa = false; cancelAnimationFrame(raf); bloby.forEach((u) => URL.revokeObjectURL(u)); },
   };
 }
